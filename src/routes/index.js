@@ -1,25 +1,18 @@
-import { Router } from 'express';
-import walletRoutes from './walletRoutes';
-import adminRoutes from './adminRoutes';
-import gameRoutes from './gameRoutes';
-
-import { GameCloudController } from '../controllers/GameCloudController';
-
-const router = Router();
-
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const walletRoutes_1 = __importDefault(require("./walletRoutes"));
+const adminRoutes_1 = __importDefault(require("./adminRoutes"));
+const gameRoutes_1 = __importDefault(require("./gameRoutes"));
+const router = (0, express_1.Router)();
 router.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Casino API is running' });
+    res.json({ status: 'OK', message: 'Casino API is running' });
 });
-
-router.use('/wallet', walletRoutes);
-router.use('/admin', adminRoutes);
-router.use('/games', gameRoutes);
-
-// GameCloud API Routes
-router.post('/gamecloud/play', GameCloudController.launchGame);
-router.post('/v1/callback', GameCloudController.callback); // Matches /api/v1/callback
-
-// Direct test URL you can open in browser!
-router.get('/test-gamecloud/:gameCode', GameCloudController.testLaunch);
-
-export default router;
+router.use('/wallet', walletRoutes_1.default);
+router.use('/admin', adminRoutes_1.default);
+router.use('/games', gameRoutes_1.default);
+exports.default = router;
+//# sourceMappingURL=index.js.map
