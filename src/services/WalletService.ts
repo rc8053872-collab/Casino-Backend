@@ -7,7 +7,7 @@ export class WalletService {
    */
   private static async executeTransaction(
     walletId: string,
-    amount: Prisma.Decimal | number | string,
+    amount: number,
     type: TxType,
     idempotencyKey: string,
     operation: (tx: Prisma.TransactionClient, wallet: any) => Promise<any>,
@@ -27,18 +27,14 @@ export class WalletService {
       }
 
       // 2. Lock the wallet row to prevent concurrent race conditions
-      // In PostgreSQL, this requires raw query or relying on Serializable isolation.
-      // Prisma doesn't support SELECT ... FOR UPDATE natively without $queryRaw yet.
-      // We will do a raw query to lock the row.
-      const lockedWallet = await tx.$queryRaw<any[]>`
-        SELECT * FROM "Wallet" WHERE id = ${walletId} FOR UPDATE;
-      `;
+      // For MongoDB, we simply fetch and update inside the transaction block
+      const wallet = await tx.wallet.findUnique({
+        where: { id: walletId }
+      });
 
-      if (!lockedWallet || lockedWallet.length === 0) {
+      if (!wallet) {
         throw new Error('Wallet not found');
       }
-
-      const wallet = lockedWallet[0];
 
       // 3. Execute the operation (deduct/add balance)
       const { newBalance, newLockedBalance } = await operation(tx, wallet);
