@@ -16,6 +16,8 @@ export class GameCloudController {
       
       const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
         reseller_id: RESELLER_ID,
+        token: 'bfc369fd4090461aa92ca32987be5668',
+        api_token: 'bfc369fd4090461aa92ca32987be5668',
         player_id: userId,
         game_uid: gameCode,
         mode: 'seamless',
@@ -24,7 +26,9 @@ export class GameCloudController {
       }, {
         headers: {
           'Origin': 'https://maltiplayx.com',
-          'Referer': 'https://maltiplayx.com/'
+          'Referer': 'https://maltiplayx.com/',
+          'Authorization': 'Bearer bfc369fd4090461aa92ca32987be5668',
+          'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
         }
       });
       
@@ -56,6 +60,8 @@ export class GameCloudController {
 
       const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
         reseller_id: RESELLER_ID,
+        token: 'bfc369fd4090461aa92ca32987be5668',
+        api_token: 'bfc369fd4090461aa92ca32907be5668',
         player_id: user.id,
         game_uid: gameCode,
         mode: 'seamless',
@@ -64,7 +70,9 @@ export class GameCloudController {
       }, {
         headers: {
           'Origin': 'https://maltiplayx.com',
-          'Referer': 'https://maltiplayx.com/'
+          'Referer': 'https://maltiplayx.com/',
+          'Authorization': 'Bearer bfc369fd4090461aa92ca32987be5668',
+          'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
         }
       });
       
