@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+  BANNED
+}
+
+enum TxType {
+  DEPOSIT
+  WITHDRAWAL
+  BET
+  WIN
+  REFUND
+  BONUS
+  ADJUSTMENT
+}
+
+enum TxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum RoundStatus {
+  OPEN
+  RESOLVED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  passwordHash String
+  role         Role      @default(USER)
+  status       Status    @default(ACTIVE)
+  wallet       Wallet?
+  sessions     Session[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  device    String?
+  ip        String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Wallet {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  user          User          @relation(fields: [userId], references: [id])
+  balance       Decimal       @default(0.00)
+  lockedBalance Decimal       @default(0.00)
+  currency      String        @default("USD")
+  status        Status        @default(ACTIVE)
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Transaction {
+  id             String   @id @default(uuid())
+  walletId       String
+  wallet         Wallet   @relation(fields: [walletId], references: [id])
+  amount         Decimal
+  type           TxType
+  status         TxStatus
+  referenceId    String?   // External reference (provider transaction id)
+  idempotencyKey String   @unique
+  gameHistoryId  String?
+  description    String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+}
+
+model Game {
+  id           String        @id @default(uuid())
+  slug         String        @unique
+  name         String
+  category     String
+  providerId   String
+  thumbnail    String?
+  status       Status        @default(ACTIVE)
+  minBet       Decimal?
+  maxBet       Decimal?
+  displayOrder Int           @default(0)
+  history      GameHistory[]
+}
+
+model GameHistory {
+  id          String      @id @default(uuid())
+  userId      String
+  gameId      String
+  game        Game        @relation(fields: [gameId], references: [id])
+  roundId     String
+  betAmount   Decimal
+  winAmount   Decimal
+  status      RoundStatus
+  providerRef String?
+  createdAt   DateTime    @default(now())
+}
