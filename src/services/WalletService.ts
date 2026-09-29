@@ -10,13 +10,13 @@ export class WalletService {
     amount: number,
     type: TxType,
     idempotencyKey: string,
-    operation: (tx: Prisma.TransactionClient, wallet: any) => Promise<any>,
+    operation: (tx: any, wallet: any) => Promise<any>,
     description?: string,
     metadata?: any,
     referenceId?: string,
     gameHistoryId?: string
   ) {
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx: any) => {
       // 1. Check idempotency
       const existingTx = await tx.transaction.findUnique({
         where: { idempotencyKey },
