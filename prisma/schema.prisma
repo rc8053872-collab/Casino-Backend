@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
 }
 
 enum Role {
@@ -42,7 +42,7 @@ enum RoundStatus {
 }
 
 model User {
-  id           String    @id @default(uuid())
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
   username     String    @unique
   passwordHash String
   role         Role      @default(USER)
@@ -54,8 +54,8 @@ model User {
 }
 
 model Session {
-  id        String   @id @default(uuid())
-  userId    String
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
   user      User     @relation(fields: [userId], references: [id])
   token     String   @unique
   device    String?
@@ -65,12 +65,12 @@ model Session {
 }
 
 model Wallet {
-  id            String        @id @default(uuid())
-  userId        String        @unique
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String        @unique @db.ObjectId
   user          User          @relation(fields: [userId], references: [id])
-  balance       Decimal       @default(0.00)
-  lockedBalance Decimal       @default(0.00)
-  currency      String        @default("USD")
+  balance       Float         @default(0.00)
+  lockedBalance Float         @default(0.00)
+  currency      String        @default("INR")
   status        Status        @default(ACTIVE)
   transactions  Transaction[]
   createdAt     DateTime      @default(now())
@@ -78,42 +78,42 @@ model Wallet {
 }
 
 model Transaction {
-  id             String   @id @default(uuid())
-  walletId       String
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  walletId       String   @db.ObjectId
   wallet         Wallet   @relation(fields: [walletId], references: [id])
-  amount         Decimal
+  amount         Float
   type           TxType
   status         TxStatus
   referenceId    String?   // External reference (provider transaction id)
   idempotencyKey String   @unique
-  gameHistoryId  String?
+  gameHistoryId  String?  @db.ObjectId
   description    String?
   metadata       Json?
   createdAt      DateTime @default(now())
 }
 
 model Game {
-  id           String        @id @default(uuid())
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
   slug         String        @unique
   name         String
   category     String
   providerId   String
   thumbnail    String?
   status       Status        @default(ACTIVE)
-  minBet       Decimal?
-  maxBet       Decimal?
+  minBet       Float?
+  maxBet       Float?
   displayOrder Int           @default(0)
   history      GameHistory[]
 }
 
 model GameHistory {
-  id          String      @id @default(uuid())
-  userId      String
-  gameId      String
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String      @db.ObjectId
+  gameId      String      @db.ObjectId
   game        Game        @relation(fields: [gameId], references: [id])
   roundId     String
-  betAmount   Decimal
-  winAmount   Decimal
+  betAmount   Float
+  winAmount   Float
   status      RoundStatus
   providerRef String?
   createdAt   DateTime    @default(now())
