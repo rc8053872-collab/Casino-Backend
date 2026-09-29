@@ -5,7 +5,7 @@ import { WalletService } from '../services/WalletService';
 import { GameTransactionService } from '../services/games/GameTransactionService';
 
 const GATEWAY_URL = process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
-const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 386);
+const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
 
 export class GameCloudController {
   
@@ -21,6 +21,11 @@ export class GameCloudController {
         mode: 'seamless',
         currency_code: 'INR',
         home_url: 'https://maltiplayx.com'
+      }, {
+        headers: {
+          'Origin': 'https://maltiplayx.com',
+          'Referer': 'https://maltiplayx.com/'
+        }
       });
       
       if (response.data.status === 'SUCCESS') {
@@ -35,7 +40,7 @@ export class GameCloudController {
   // 1.5 DIRECT TEST ROUTE (No Frontend Needed)
   static async testLaunch(req: Request, res: Response) {
     try {
-      const gameCode = req.params.gameCode || 'spribe_aviator';
+      const gameCode = req.params.gameCode || 'e04d1f3e'; // Spribe aviator prefix or exact if they provide
       
       // Ensure a dummy user exists for testing
       let user = await prisma.user.findFirst({ where: { username: 'testuser' } });
@@ -56,6 +61,11 @@ export class GameCloudController {
         mode: 'seamless',
         currency_code: 'INR',
         home_url: 'https://maltiplayx.com'
+      }, {
+        headers: {
+          'Origin': 'https://maltiplayx.com',
+          'Referer': 'https://maltiplayx.com/'
+        }
       });
       
       if (response.data.status === 'SUCCESS') {
