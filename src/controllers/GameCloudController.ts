@@ -8,12 +8,12 @@ const GATEWAY_URL = process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.c
 const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
 
 export class GameCloudController {
-  
+
   // 1. GAME LAUNCH METHOD
   static async launchGame(req: Request, res: Response) {
     try {
       const { userId, gameCode } = req.body;
-      
+
       const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
         reseller_id: RESELLER_ID,
         token: 'bfc369fd4090461aa92ca32987be5668',
@@ -31,7 +31,7 @@ export class GameCloudController {
           'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
         }
       });
-      
+
       if (response.data.status === 'SUCCESS') {
         return res.json({ launchUrl: response.data.game_launch_url });
       }
@@ -45,7 +45,7 @@ export class GameCloudController {
   static async testLaunch(req: Request, res: Response) {
     try {
       const gameCode = req.params.gameCode || 'e04d1f3e'; // Spribe aviator prefix or exact if they provide
-      
+
       // Ensure a dummy user exists for testing
       let user = await prisma.user.findFirst({ where: { username: 'testuser' } });
       if (!user) {
@@ -75,7 +75,7 @@ export class GameCloudController {
           'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
         }
       });
-      
+
       if (response.data.status === 'SUCCESS') {
         // Redirect directly to the game!
         return res.redirect(response.data.game_launch_url);
@@ -111,14 +111,14 @@ export class GameCloudController {
       const roundId = provider_txn_id || `rnd_${Date.now()}`;
       // In GameTransactionService we need gameId (UUID from DB), but we only have game_code string.
       // For simplicity, we pass game_code as gameId in the transaction service.
-      
+
       // Idempotency check handled by GameTransactionService
 
       if (action === 'bet') {
         if (Number(user.wallet.balance) < Number(amount)) {
           return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
         }
-        
+
         await GameTransactionService.processProviderTransaction({
           userId: player_id,
           gameId: game_code,
@@ -128,7 +128,7 @@ export class GameCloudController {
           type: 'BET',
           currency: 'INR',
         });
-        
+
       } else if (action === 'win') {
         await GameTransactionService.processProviderTransaction({
           userId: player_id,
@@ -139,7 +139,7 @@ export class GameCloudController {
           type: 'WIN',
           currency: 'INR',
         });
-        
+
       } else {
         return res.status(400).json({ status: 'FAILED', error: 'INVALID_ACTION' });
       }
@@ -151,7 +151,7 @@ export class GameCloudController {
       });
 
       return res.json({ status: 'SUCCESS', balance: Number(updatedUser?.wallet?.balance || 0) });
-      
+
     } catch (err: any) {
       // If WalletService throws Duplicate Transaction, handle it as idempotency
       if (err.message?.includes('idempotency') || err.message?.includes('Unique constraint')) {
