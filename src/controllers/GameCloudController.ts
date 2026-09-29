@@ -32,6 +32,42 @@ export class GameCloudController {
     }
   }
 
+  // 1.5 DIRECT TEST ROUTE (No Frontend Needed)
+  static async testLaunch(req: Request, res: Response) {
+    try {
+      const gameCode = req.params.gameCode || 'spribe_aviator';
+      
+      // Ensure a dummy user exists for testing
+      let user = await prisma.user.findFirst({ where: { username: 'testuser' } });
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            username: 'testuser',
+            passwordHash: 'dummy',
+            wallet: { create: { balance: 10000, currency: 'INR' } }
+          }
+        });
+      }
+
+      const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
+        reseller_id: RESELLER_ID,
+        player_id: user.id,
+        game_uid: gameCode,
+        mode: 'seamless',
+        currency_code: 'INR',
+        home_url: 'https://maltiplayx.com'
+      });
+      
+      if (response.data.status === 'SUCCESS') {
+        // Redirect directly to the game!
+        return res.redirect(response.data.game_launch_url);
+      }
+      return res.send(`GameCloud Error: ${JSON.stringify(response.data)}`);
+    } catch (err: any) {
+      return res.send(`Error: ${err.message}`);
+    }
+  }
+
   // 2. WEBHOOK CALLBACK RECEIVER
   static async callback(req: Request, res: Response) {
     try {
