@@ -9,8 +9,11 @@ export class GameTransactionService {
    * Leverages WalletService for idempotency and atomic updates.
    */
   static async processProviderTransaction(req: ProcessTransactionRequest) {
+    const userId = typeof req.userId === 'string' ? req.userId.trim() : '';
+    if (!userId) throw new Error('User ID is required');
+
     const user = await prisma.user.findUnique({
-      where: { id: req.userId },
+      where: { id: userId },
       include: { wallet: true }
     });
 
@@ -25,7 +28,7 @@ export class GameTransactionService {
     if (!round) {
       round = await prisma.gameHistory.create({
         data: {
-          userId: req.userId,
+          userId,
           gameId: req.gameId,
           roundId: req.roundId,
           betAmount: 0,
