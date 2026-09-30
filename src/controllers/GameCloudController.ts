@@ -7,6 +7,37 @@ import { GameTransactionService } from '../services/games/GameTransactionService
 const GATEWAY_URL = process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
 const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
 
+function sanitizeErrorText(value: string | undefined): string | undefined {
+  return value
+    ?.replace(/\b(?:mongodb(?:\+srv)?|postgres(?:ql)?):\/\/[^\s"'<>]+/gi, '[REDACTED_DATABASE_URL]')
+    .replace(/(\b(?:password|secret|token|api[_-]?key|authorization)\b\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]');
+}
+
+function getSafeErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) {
+    return {
+      errorName: 'UnknownError',
+      errorMessage: 'Non-Error exception',
+      prismaCode: undefined,
+      stackTrace: undefined,
+    };
+  }
+
+  const prismaError = error as Error & { code?: unknown; errorCode?: unknown };
+  const code = typeof prismaError.code === 'string'
+    ? prismaError.code
+    : typeof prismaError.errorCode === 'string'
+      ? prismaError.errorCode
+      : undefined;
+
+  return {
+    errorName: error.name,
+    errorMessage: sanitizeErrorText(error.message),
+    prismaCode: code,
+    stackTrace: sanitizeErrorText(error.stack),
+  };
+}
+
 export class GameCloudController {
 
   // 1. GAME LAUNCH METHOD
@@ -96,7 +127,8 @@ export class GameCloudController {
       action: body?.action,
       player_id: body?.player_id,
       id: body?.id,
-      userId: body?.userId
+      userId: body?.userId,
+      currency: body?.currency,
     });
 
     if (!playerId) {
@@ -112,8 +144,11 @@ export class GameCloudController {
         include: { wallet: true }
       });
 
-      if (!user || !user.wallet) {
+      if (!user) {
         return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
+      }
+      if (!user.wallet) {
+        return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
       }
 
       const walletId = user.wallet.id;
@@ -176,16 +211,29 @@ export class GameCloudController {
             where: { id: playerId },
             include: { wallet: true }
           });
-          if (!user?.wallet) {
+          if (!user) {
             return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
+          }
+          if (!user.wallet) {
+            return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
           }
           return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
         } catch (lookupError) {
-          console.error('GameCloud duplicate callback lookup failed:', lookupError);
+          console.error('GameCloud duplicate callback lookup failed:', {
+            action: req.body?.action,
+            player_id: playerId,
+            currency: req.body?.currency,
+            ...getSafeErrorDetails(lookupError),
+          });
           return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
         }
       }
-      console.error("GameCloud Webhook Error:", err);
+      console.error('GameCloud callback failed:', {
+        action: req.body?.action,
+        player_id: playerId,
+        currency: req.body?.currency,
+        ...getSafeErrorDetails(err),
+      });
       return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
     }
   }
