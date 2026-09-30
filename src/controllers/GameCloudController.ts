@@ -206,6 +206,17 @@ export class GameCloudController {
           currency: 'INR',
         });
 
+      } else if (action === 'refund') {
+        await GameTransactionService.processProviderTransaction({
+          userId: playerId,
+          gameId: internalGameId,
+          roundId: roundId,
+          transactionId: provider_txn_id,
+          amount: Number(amount),
+          type: 'REFUND',
+          currency: 'INR',
+        });
+
       } else {
         return res.status(400).json({ status: 'FAILED', error: 'INVALID_ACTION' });
       }
@@ -244,6 +255,11 @@ export class GameCloudController {
           return res.status(500).json({ status: 'FAILED', error: lookupError instanceof Error ? lookupError.message : 'INTERNAL_ERROR', details: getSafeErrorDetails(lookupError) });
         }
       }
+
+      if (errorMessage.includes('ORIGINAL_TRANSACTION_NOT_FOUND')) {
+        return res.status(400).json({ status: 'FAILED', error: 'ORIGINAL_TRANSACTION_NOT_FOUND' });
+      }
+
       console.error('GameCloud callback failed:', {
         action: req.body?.action,
         player_id: playerId,
