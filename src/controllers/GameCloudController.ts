@@ -43,32 +43,106 @@ export class GameCloudController {
   // 1. GAME LAUNCH METHOD
   static async launchGame(req: Request, res: Response) {
     try {
-      const { userId, gameCode } = req.body;
+      const { player_id, game_uid, currency_code } = req.body;
 
-      const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
-        reseller_id: RESELLER_ID,
-        token: 'bfc369fd4090461aa92ca32987be5668',
-        api_token: 'bfc369fd4090461aa92ca32987be5668',
-        player_id: userId,
-        game_uid: gameCode,
-        mode: 'seamless',
-        currency_code: 'INR',
-        home_url: 'https://maltiplayx.com'
-      }, {
-        headers: {
-          'Origin': 'https://maltiplayx.com',
-          'Referer': 'https://maltiplayx.com/',
-          'Authorization': 'Bearer bfc369fd4090461aa92ca32987be5668',
-          'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
+      if (!player_id || !game_uid) {
+        return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS' });
+      }
+
+      // 1. Validate Player
+      const user = await prisma.user.findUnique({
+        where: { id: player_id },
+        include: { wallet: true }
+      });
+
+      if (!user) {
+        return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
+      }
+
+      // 2. Validate Game
+      const game = await prisma.game.findFirst({
+        where: {
+          OR: [
+            { slug: game_uid },
+            { providerId: game_uid }
+          ]
         }
       });
 
-      if (response.data.status === 'SUCCESS') {
-        return res.json({ launchUrl: response.data.game_launch_url });
+      if (!game) {
+        return res.status(404).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
       }
-      return res.status(400).json({ error: response.data.error });
+
+      // External provider game code
+      const externalGameUid = game.providerId || game.slug;
+
+      // 3. Setup GameCloud request
+      const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
+      const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
+      const API_TOKEN = process.env.GAMECLOUD_API_TOKEN || '';
+      const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || API_TOKEN;
+      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://api.maltiplayx.com';
+
+      if (!API_TOKEN) {
+        console.error('GameCloud launch failed: API token not configured.');
+        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_AUTH_FAILED' });
+      }
+
+      try {
+        const payload = {
+          reseller_id: RESELLER_ID,
+          player_id: player_id,
+          game_uid: externalGameUid,
+          mode: 'seamless',
+          currency_code: currency_code || user.wallet?.currency || 'INR',
+          home_url: HOME_URL
+        };
+
+        const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, payload, {
+          headers: {
+            'Authorization': `Bearer ${API_TOKEN}`,
+            'x-api-token': SECRET_KEY,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000 // 10s timeout
+        });
+
+        if (response.data?.status === 'SUCCESS') {
+          return res.json({
+            status: 'SUCCESS',
+            game_uid: externalGameUid,
+            launch_url: response.data.game_launch_url
+          });
+        }
+
+        console.error('GameCloud launch failed from provider:', response.data);
+        return res.status(400).json({
+          status: 'FAILED',
+          error: 'GAMECLOUD_LAUNCH_FAILED',
+          details: response.data?.error || response.data?.message || 'Unknown error from GameCloud'
+        });
+
+      } catch (axiosError: any) {
+        console.error('GameCloud network error:', axiosError.message);
+        if (axiosError.code === 'ECONNABORTED') {
+          return res.status(504).json({ status: 'FAILED', error: 'GAMECLOUD_TIMEOUT' });
+        }
+        
+        if (axiosError.response) {
+          if (axiosError.response.status === 401 || axiosError.response.status === 403) {
+            return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTH_FAILED' });
+          }
+          if (axiosError.response.status === 404) {
+            return res.status(404).json({ status: 'FAILED', error: 'GAMECLOUD_GAME_NOT_FOUND' });
+          }
+        }
+        
+        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED' });
+      }
+
     } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+      console.error('Launch Game internal error:', err.message);
+      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
     }
   }
 
