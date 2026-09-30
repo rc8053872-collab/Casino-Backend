@@ -26,6 +26,9 @@ export class GameTransactionService {
     });
 
     if (!round) {
+      if (req.type === 'REFUND') {
+        throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+      }
       round = await prisma.gameHistory.create({
         data: {
           userId,
