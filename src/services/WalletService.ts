@@ -23,7 +23,7 @@ export class WalletService {
       });
 
       if (existingTx) {
-        return existingTx; // Already processed
+        throw new Error('IDEMPOTENCY_CONFLICT'); // Handled upstream to return existing balance
       }
 
       // 2. Lock the wallet row to prevent concurrent race conditions
