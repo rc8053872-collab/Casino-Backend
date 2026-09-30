@@ -123,12 +123,11 @@ export class GameCloudController {
     const { player_id } = body ?? {};
     const playerId = typeof player_id === 'string' ? player_id.trim() : '';
 
-    console.log({
-      action: body?.action,
-      player_id: body?.player_id,
-      id: body?.id,
-      userId: body?.userId,
-      currency: body?.currency,
+    console.log("CALLBACK BODY", {
+      action: req.body?.action,
+      player_id: req.body?.player_id,
+      playerId: req.body?.playerId,
+      currency: req.body?.currency
     });
 
     if (!playerId) {
@@ -225,7 +224,7 @@ export class GameCloudController {
             currency: req.body?.currency,
             ...getSafeErrorDetails(lookupError),
           });
-          return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
+          return res.status(500).json({ status: 'FAILED', error: lookupError instanceof Error ? lookupError.message : 'INTERNAL_ERROR', details: getSafeErrorDetails(lookupError) });
         }
       }
       console.error('GameCloud callback failed:', {
@@ -234,7 +233,7 @@ export class GameCloudController {
         currency: req.body?.currency,
         ...getSafeErrorDetails(err),
       });
-      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
+      return res.status(500).json({ status: 'FAILED', error: errorMessage || 'INTERNAL_ERROR', details: getSafeErrorDetails(err) });
     }
   }
 }
