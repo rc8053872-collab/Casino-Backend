@@ -20,6 +20,14 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'OK',
+    service: 'maltiplayx-api',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Routes
 app.use('/api', routes);
 
