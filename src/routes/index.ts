@@ -12,6 +12,7 @@ router.use('/admin', adminRoutes);
 router.use('/games', gameRoutes);
 
 // GameCloud API Routes
+router.post('/v1/games/launch', GameCloudController.launchGame); // POST /api/v1/games/launch
 router.post('/gamecloud/play', GameCloudController.launchGame);
 router.post('/v1/callback', GameCloudController.callback); // Matches /api/v1/callback
 
