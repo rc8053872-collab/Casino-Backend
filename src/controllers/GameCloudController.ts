@@ -88,12 +88,27 @@ export class GameCloudController {
 
   // 2. WEBHOOK CALLBACK RECEIVER
   static async callback(req: Request, res: Response) {
+    const body = req.body as Record<string, unknown> | undefined;
+    const { player_id } = body ?? {};
+    const playerId = typeof player_id === 'string' ? player_id.trim() : '';
+
+    console.log({
+      action: body?.action,
+      player_id: body?.player_id,
+      id: body?.id,
+      userId: body?.userId
+    });
+
+    if (!playerId) {
+      return res.status(400).json({ status: 'FAILED', error: 'PLAYER_ID_REQUIRED' });
+    }
+
     try {
-      const { action, player_id, amount, provider_txn_id, game_code } = req.body;
+      const { action, amount, provider_txn_id, game_code } = req.body;
 
       // Ensure user exists
       const user = await prisma.user.findUnique({
-        where: { id: player_id },
+        where: { id: playerId },
         include: { wallet: true }
       });
 
@@ -120,7 +135,7 @@ export class GameCloudController {
         }
 
         await GameTransactionService.processProviderTransaction({
-          userId: player_id,
+          userId: playerId,
           gameId: game_code,
           roundId: roundId,
           transactionId: provider_txn_id,
@@ -131,7 +146,7 @@ export class GameCloudController {
 
       } else if (action === 'win') {
         await GameTransactionService.processProviderTransaction({
-          userId: player_id,
+          userId: playerId,
           gameId: game_code,
           roundId: roundId,
           transactionId: provider_txn_id,
@@ -146,23 +161,32 @@ export class GameCloudController {
 
       // Fetch latest balance
       const updatedUser = await prisma.user.findUnique({
-        where: { id: player_id },
+        where: { id: playerId },
         include: { wallet: true }
       });
 
       return res.json({ status: 'SUCCESS', balance: Number(updatedUser?.wallet?.balance || 0) });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       // If WalletService throws Duplicate Transaction, handle it as idempotency
-      if (err.message?.includes('idempotency') || err.message?.includes('Unique constraint')) {
-        const user = await prisma.user.findUnique({
-          where: { id: req.body.player_id },
-          include: { wallet: true }
-        });
-        return res.json({ status: 'SUCCESS', balance: Number(user?.wallet?.balance || 0) });
+      const errorMessage = err instanceof Error ? err.message : '';
+      if (errorMessage.includes('idempotency') || errorMessage.includes('Unique constraint')) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: playerId },
+            include: { wallet: true }
+          });
+          if (!user?.wallet) {
+            return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
+          }
+          return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
+        } catch (lookupError) {
+          console.error('GameCloud duplicate callback lookup failed:', lookupError);
+          return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
+        }
       }
       console.error("GameCloud Webhook Error:", err);
-      return res.status(500).json({ status: 'FAILED', error: err.message });
+      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
     }
   }
 }
