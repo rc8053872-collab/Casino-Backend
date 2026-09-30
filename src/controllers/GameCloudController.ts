@@ -156,10 +156,27 @@ export class GameCloudController {
         return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
       }
 
+      if (!game_code || typeof game_code !== 'string') {
+        return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_CODE' });
+      }
+
+      const game = await prisma.game.findFirst({
+        where: {
+          OR: [
+            { slug: game_code },
+            { providerId: game_code }
+          ]
+        }
+      });
+
+      if (!game) {
+        return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_CODE' });
+      }
+
+      const internalGameId = game.id;
+
       // We need a dummy roundId for GameCloud if it doesn't provide one, or use provider_txn_id
       const roundId = provider_txn_id || `rnd_${Date.now()}`;
-      // In GameTransactionService we need gameId (UUID from DB), but we only have game_code string.
-      // For simplicity, we pass game_code as gameId in the transaction service.
 
       // Idempotency check handled by GameTransactionService
 
@@ -170,7 +187,7 @@ export class GameCloudController {
 
         await GameTransactionService.processProviderTransaction({
           userId: playerId,
-          gameId: game_code,
+          gameId: internalGameId,
           roundId: roundId,
           transactionId: provider_txn_id,
           amount: Number(amount),
@@ -181,7 +198,7 @@ export class GameCloudController {
       } else if (action === 'win') {
         await GameTransactionService.processProviderTransaction({
           userId: playerId,
-          gameId: game_code,
+          gameId: internalGameId,
           roundId: roundId,
           transactionId: provider_txn_id,
           amount: Number(amount),
