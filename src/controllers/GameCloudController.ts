@@ -232,7 +232,7 @@ export class GameCloudController {
     } catch (err: unknown) {
       // If WalletService throws Duplicate Transaction, handle it as idempotency
       const errorMessage = err instanceof Error ? err.message : '';
-      if (errorMessage.includes('idempotency') || errorMessage.includes('Unique constraint')) {
+      if (errorMessage.toLowerCase().includes('idempotency') || errorMessage.includes('Unique constraint')) {
         try {
           const user = await prisma.user.findUnique({
             where: { id: playerId },
