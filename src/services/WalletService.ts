@@ -36,27 +36,26 @@ export class WalletService {
         throw new Error('Wallet not found');
       }
 
-      // 3. Execute the operation (deduct/add balance)
-      const { newBalance, newLockedBalance } = await operation(tx, wallet);
-
-      if (Number(newBalance) < 0) {
-        throw new Error('Insufficient available balance');
+      // 3. Update wallet atomically
+      let updatedWallet;
+      if (type === TxType.BET || type === TxType.WITHDRAWAL) {
+        if (Number(wallet.balance) < amount) {
+          throw new Error('Insufficient available balance');
+        }
+        updatedWallet = await tx.wallet.update({
+          where: { id: walletId },
+          data: { balance: { decrement: amount } },
+        });
+      } else if (type === TxType.WIN || type === TxType.DEPOSIT || type === TxType.REFUND) {
+        updatedWallet = await tx.wallet.update({
+          where: { id: walletId },
+          data: { balance: { increment: amount } },
+        });
+      } else {
+        throw new Error('Unsupported transaction type');
       }
 
-      if (Number(newLockedBalance) < 0) {
-        throw new Error('Insufficient locked balance');
-      }
-
-      // 4. Update wallet
-      await tx.wallet.update({
-        where: { id: walletId },
-        data: {
-          balance: newBalance,
-          lockedBalance: newLockedBalance,
-        },
-      });
-
-      // 5. Create transaction record
+      // 4. Create transaction record
       const transaction = await tx.transaction.create({
         data: {
           walletId,
