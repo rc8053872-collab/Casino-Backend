@@ -91,6 +91,8 @@ export class GameCloudController {
       try {
         const payload = {
           reseller_id: RESELLER_ID,
+          token: API_TOKEN,
+          api_token: SECRET_KEY,
           player_id: player_id,
           game_uid: externalGameUid,
           mode: 'seamless',
@@ -108,6 +110,7 @@ export class GameCloudController {
         });
 
         if (response.data?.status === 'SUCCESS') {
+          console.log(`[GameCloud Launch] Success: player=${player_id}, game=${externalGameUid}, reseller=${RESELLER_ID}`);
           return res.json({
             status: 'SUCCESS',
             game_uid: externalGameUid,
@@ -115,22 +118,34 @@ export class GameCloudController {
           });
         }
 
-        console.error('GameCloud launch failed from provider:', response.data);
+        const gcError = response.data?.error || response.data?.message || 'Unknown error from GameCloud';
+        console.error(`[GameCloud Launch] Failed from provider: player=${player_id}, game=${externalGameUid}, status=${response.data?.status}, error=${gcError}`);
+        
+        if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
+          return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
+        }
+
         return res.status(400).json({
           status: 'FAILED',
           error: 'GAMECLOUD_LAUNCH_FAILED',
-          details: response.data?.error || response.data?.message || 'Unknown error from GameCloud'
+          details: gcError
         });
 
       } catch (axiosError: any) {
-        console.error('GameCloud network error:', axiosError.message);
+        console.error(`[GameCloud Launch] Network error: ${axiosError.message}`);
+        
         if (axiosError.code === 'ECONNABORTED') {
           return res.status(504).json({ status: 'FAILED', error: 'GAMECLOUD_TIMEOUT' });
         }
         
         if (axiosError.response) {
-          if (axiosError.response.status === 401 || axiosError.response.status === 403) {
-            return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTH_FAILED' });
+          const respData = axiosError.response.data;
+          const gcError = respData?.error || respData?.message || '';
+          
+          console.error(`[GameCloud Launch] HTTP ${axiosError.response.status}: error=${gcError}`);
+
+          if (axiosError.response.status === 401 || axiosError.response.status === 403 || (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found'))) {
+            return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
           }
           if (axiosError.response.status === 404) {
             return res.status(404).json({ status: 'FAILED', error: 'GAMECLOUD_GAME_NOT_FOUND' });
