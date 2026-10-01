@@ -4,9 +4,15 @@ import adminRoutes from './adminRoutes';
 import gameRoutes from './gameRoutes';
 
 import { GameCloudController } from '../controllers/GameCloudController';
+import { AuthController } from '../controllers/AuthController';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
+
+// Auth Routes
+router.post('/v1/auth/register', AuthController.register);
+router.post('/v1/auth/login', AuthController.login);
+router.get('/v1/auth/me', requireAuth, AuthController.getMe);
 
 router.use('/wallet', walletRoutes);
 router.use('/admin', adminRoutes);
