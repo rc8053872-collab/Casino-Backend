@@ -11,7 +11,7 @@ async function main() {
     {
       slug: "spribe_aviator",
       name: "Aviator",
-      providerId: "spribe_aviator",
+      providerId: "50fb95404b19b978a8983f2ff6cafc6d",
       category: "crash",
       status: "ACTIVE",
       thumbnail: "aviator.png",
