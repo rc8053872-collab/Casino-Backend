@@ -20,7 +20,7 @@ export class AuthController {
       const normalizedPhone = phone.replace(/\s+/g, '');
 
       // Check if user exists
-      const existingUser = await prisma.user.findFirst({
+      const existingUser = await (prisma.user as any).findFirst({
         where: { mobile: normalizedPhone }
       });
 
@@ -32,7 +32,7 @@ export class AuthController {
       const passwordHash = await bcrypt.hash(password, salt);
 
       // Create user and wallet in a transaction (Map frontend 'phone' -> DB 'mobile')
-      const user = await prisma.user.create({
+      const user = await (prisma.user as any).create({
         data: {
           mobile: normalizedPhone,
           username: `user_${Date.now()}`,
@@ -80,7 +80,7 @@ export class AuthController {
 
       const normalizedPhone = phone.replace(/\s+/g, '');
 
-      const user = await prisma.user.findFirst({
+      const user: any = await (prisma.user as any).findFirst({
         where: { mobile: normalizedPhone },
         include: { wallet: true }
       });
@@ -123,7 +123,7 @@ export class AuthController {
         return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
       }
 
-      const user = await prisma.user.findUnique({
+      const user: any = await (prisma.user as any).findUnique({
         where: { id: userId },
         include: { wallet: true }
       });
