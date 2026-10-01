@@ -44,7 +44,10 @@ enum RoundStatus {
 
 model User {
   id           String    @id @default(auto()) @map("_id") @db.ObjectId
-  username     String    @unique
+  username     String?   @unique
+  mobile       String?   @unique
+  email        String?   @unique
+  googleId     String?   @unique
   passwordHash String
   role         Role      @default(USER)
   status       Status    @default(ACTIVE)
