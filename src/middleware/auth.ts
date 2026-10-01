@@ -1,17 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        id: string;
-        walletId?: string;
-      };
-    }
-  }
-}
-
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -24,6 +13,10 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   }
 
   const token = authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ status: 'FAILED', error: 'UNAUTHORIZED', message: 'Token missing.' });
+  }
+
   try {
     const secret = (process.env.JWT_SECRET || 'secret') as string;
     const decoded = jwt.verify(token, secret) as unknown as { id: string; walletId?: string };
