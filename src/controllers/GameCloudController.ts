@@ -82,7 +82,7 @@ export class GameCloudController {
       const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
       const API_TOKEN = process.env.GAMECLOUD_API_TOKEN || '';
       const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || API_TOKEN;
-      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://api.maltiplayx.com';
+      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://orbitplay.com';
 
       if (!API_TOKEN) {
         console.error('GameCloud launch failed: API token not configured.');
@@ -92,6 +92,8 @@ export class GameCloudController {
       try {
         const payload = {
           reseller_id: RESELLER_ID,
+          token: API_TOKEN,
+          api_token: API_TOKEN,
           player_id: player_id,
           game_uid: externalGameUid,
           mode: 'seamless',
@@ -103,7 +105,9 @@ export class GameCloudController {
           headers: {
             'X-API-Token': API_TOKEN,
             'X-Secret-Key': SECRET_KEY,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'Origin': 'https://maltiplayx.com',
+            'Referer': 'https://maltiplayx.com/'
           },
           timeout: 10000 // 10s timeout
         });
