@@ -143,20 +143,23 @@ export class GameCloudController {
 
           console.error(`[GameCloud Launch] HTTP ${axiosError.response.status}: error=${gcError}`);
 
-          if (axiosError.response.status === 401 || axiosError.response.status === 403 || (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found'))) {
-            return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
-          }
-          if (axiosError.response.status === 404) {
-            return res.status(404).json({ status: 'FAILED', error: 'GAMECLOUD_GAME_NOT_FOUND' });
-          }
+          // Preserve the original status code and error from GameCloud
+          return res.status(axiosError.response.status).json({ 
+            status: 'FAILED', 
+            error: 'GAMECLOUD_LAUNCH_FAILED',
+            details: gcError || JSON.stringify(respData)
+          });
         }
 
-        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED' });
+        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED', details: axiosError.message });
       }
 
     } catch (err: any) {
-      console.error('Launch Game internal error:', err.message);
-      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
+      console.error('[GAME_LAUNCH_ERROR]', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR', details: err.message });
     }
   }
 
