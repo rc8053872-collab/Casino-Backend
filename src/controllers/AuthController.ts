@@ -58,7 +58,7 @@ export class AuthController {
       });
     } catch (error: any) {
       console.error('Registration error:', error);
-      return res.status(500).json({ status: 'FAILED', message: 'Internal server error' });
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
     }
   }
 
