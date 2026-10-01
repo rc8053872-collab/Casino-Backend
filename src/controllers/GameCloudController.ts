@@ -92,8 +92,6 @@ export class GameCloudController {
       try {
         const payload = {
           reseller_id: RESELLER_ID,
-          token: API_TOKEN,
-          api_token: SECRET_KEY,
           player_id: player_id,
           game_uid: externalGameUid,
           mode: 'seamless',
@@ -103,8 +101,8 @@ export class GameCloudController {
 
         const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, payload, {
           headers: {
-            'Authorization': `Bearer ${API_TOKEN}`,
-            'x-api-token': SECRET_KEY,
+            'X-API-Token': API_TOKEN,
+            'X-Secret-Key': SECRET_KEY,
             'Content-Type': 'application/json'
           },
           timeout: 10000 // 10s timeout
