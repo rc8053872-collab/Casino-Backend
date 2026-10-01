@@ -19,9 +19,9 @@ export class AuthController {
       // Basic phone normalization (remove spaces, etc)
       const normalizedPhone = phone.replace(/\s+/g, '');
 
-      // Check if user exists
+      // Check if user exists using 'username' column
       const existingUser = await (prisma.user as any).findFirst({
-        where: { phone: normalizedPhone }
+        where: { username: normalizedPhone }
       });
 
       if (existingUser) {
@@ -31,11 +31,10 @@ export class AuthController {
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(password, salt);
 
-      // Create user and wallet in a transaction
+      // Create user and wallet in a transaction (Map phone to username)
       const user = await (prisma.user as any).create({
         data: {
-          phone: normalizedPhone,
-          username: `user_${Date.now()}`, // Temporary username until they set one
+          username: normalizedPhone,
           passwordHash,
           wallet: {
             create: {
@@ -46,7 +45,7 @@ export class AuthController {
         },
         select: {
           id: true,
-          phone: true,
+          username: true,
           status: true
         }
       });
@@ -54,7 +53,7 @@ export class AuthController {
       return res.status(201).json({
         status: 'SUCCESS',
         message: 'Registration successful',
-        user
+        user: { ...user, phone: user.username }
       });
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -79,7 +78,7 @@ export class AuthController {
       const normalizedPhone = phone.replace(/\s+/g, '');
 
       const user: any = await (prisma.user as any).findFirst({
-        where: { phone: normalizedPhone },
+        where: { username: normalizedPhone },
         include: { wallet: true }
       });
 
@@ -103,14 +102,14 @@ export class AuthController {
         token,
         user: {
           id: user.id,
-          phone: user.phone,
+          phone: user.username,
           balance: user.wallet?.balance || 0,
           currency: user.wallet?.currency || 'INR'
         }
       });
     } catch (error: any) {
       console.error('Login error:', error);
-      return res.status(500).json({ status: 'FAILED', message: 'Internal server error' });
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
     }
   }
 
@@ -134,13 +133,13 @@ export class AuthController {
         status: 'SUCCESS',
         user: {
           id: user.id,
-          phone: user.phone,
+          phone: user.username,
           balance: user.wallet?.balance || 0,
           currency: user.wallet?.currency || 'INR'
         }
       });
-    } catch (error) {
-      return res.status(500).json({ status: 'FAILED', message: 'Internal server error' });
+    } catch (error: any) {
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
     }
   }
 }
