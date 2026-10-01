@@ -43,10 +43,11 @@ export class GameCloudController {
   // 1. GAME LAUNCH METHOD
   static async launchGame(req: Request, res: Response) {
     try {
-      const { player_id, game_uid, currency_code } = req.body;
+      const player_id = req.user?.id;
+      const { game_uid, currency_code } = req.body;
 
       if (!player_id || !game_uid) {
-        return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS' });
+        return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS', message: 'Player ID and Game UID are required' });
       }
 
       // 1. Validate Player
@@ -120,7 +121,7 @@ export class GameCloudController {
 
         const gcError = response.data?.error || response.data?.message || 'Unknown error from GameCloud';
         console.error(`[GameCloud Launch] Failed from provider: player=${player_id}, game=${externalGameUid}, status=${response.data?.status}, error=${gcError}`);
-        
+
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
           return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
         }
@@ -133,15 +134,15 @@ export class GameCloudController {
 
       } catch (axiosError: any) {
         console.error(`[GameCloud Launch] Network error: ${axiosError.message}`);
-        
+
         if (axiosError.code === 'ECONNABORTED') {
           return res.status(504).json({ status: 'FAILED', error: 'GAMECLOUD_TIMEOUT' });
         }
-        
+
         if (axiosError.response) {
           const respData = axiosError.response.data;
           const gcError = respData?.error || respData?.message || '';
-          
+
           console.error(`[GameCloud Launch] HTTP ${axiosError.response.status}: error=${gcError}`);
 
           if (axiosError.response.status === 401 || axiosError.response.status === 403 || (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found'))) {
@@ -151,7 +152,7 @@ export class GameCloudController {
             return res.status(404).json({ status: 'FAILED', error: 'GAMECLOUD_GAME_NOT_FOUND' });
           }
         }
-        
+
         return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED' });
       }
 
