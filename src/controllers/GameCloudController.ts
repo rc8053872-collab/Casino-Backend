@@ -74,6 +74,18 @@ export class GameCloudController {
         return res.status(404).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
       }
 
+      const walletCurrency = user.wallet?.currency || 'INR';
+
+      if (game.supportedCurrencies && game.supportedCurrencies.length > 0) {
+        if (!game.supportedCurrencies.includes(walletCurrency)) {
+          return res.status(400).json({
+            status: 'FAILED',
+            error: 'CURRENCY_NOT_SUPPORTED',
+            message: `This game is not available for ${walletCurrency} players.`
+          });
+        }
+      }
+
       // External provider game code
       const externalGameUid = game.providerId || game.slug;
 
@@ -95,7 +107,7 @@ export class GameCloudController {
           player_id: player_id,
           game_uid: externalGameUid,
           mode: 'seamless',
-          currency_code: currency_code || user.wallet?.currency || 'INR',
+          currency_code: walletCurrency,
           home_url: HOME_URL
         };
 
@@ -110,8 +122,15 @@ export class GameCloudController {
           timeout: 10000 // 10s timeout
         });
 
+        // Safe sanitized logging
+        const safeLogPayload = {
+          reseller_id: payload.reseller_id,
+          game_uid: payload.game_uid,
+          currency_code: payload.currency_code
+        };
+
         if (response.data?.status === 'SUCCESS') {
-          console.log(`[GameCloud Launch] Success: player=${player_id}, game=${externalGameUid}, reseller=${RESELLER_ID}`);
+          console.log(`[GameCloud Launch] Success`, { ...safeLogPayload, launch_url: '...' });
           return res.json({
             status: 'SUCCESS',
             game_uid: externalGameUid,
@@ -120,19 +139,18 @@ export class GameCloudController {
         }
 
         const gcError = response.data?.error || response.data?.message || 'Unknown error from GameCloud';
-        console.error(`[GameCloud Launch] Failed from provider: player=${player_id}, game=${externalGameUid}, status=${response.data?.status}, error=${gcError}`);
-        console.error(`[GameCloud Launch] Request Body:`, payload);
+        console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: response.data?.status, error: gcError });
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
-          return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
+          return res.status(401).json({ status: 'FAILED', error: 'UNAUTHORIZED', message: 'Game provider authentication failed.' });
         }
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
-          return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'This game is currently unavailable.' });
+          return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'Game is currently unavailable.' });
         }
         
         if (typeof gcError === 'string' && (gcError.toLowerCase().includes('invalid game') || gcError.toLowerCase().includes('not found'))) {
-          return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_UID', message: 'Game provider UID is not configured correctly.' });
+          return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME', message: 'Game configuration is invalid.' });
         }
 
         return res.status(400).json({
@@ -142,10 +160,16 @@ export class GameCloudController {
         });
 
       } catch (axiosError: any) {
-        console.error(`[GameCloud Launch] Network error: ${axiosError.message}`);
+        // Safe sanitized logging
+        const safeLogPayload = {
+          reseller_id: RESELLER_ID,
+          game_uid: externalGameUid,
+          currency_code: walletCurrency
+        };
+        console.error(`[GameCloud Launch] Network/API error: ${axiosError.message}`, safeLogPayload);
 
         if (axiosError.code === 'ECONNABORTED') {
-          return res.status(504).json({ status: 'FAILED', error: 'GAMECLOUD_TIMEOUT' });
+          return res.status(504).json({ status: 'FAILED', error: 'NETWORK_ERROR', message: 'Game provider is temporarily unavailable.' });
         }
 
         if (axiosError.response) {
@@ -156,10 +180,10 @@ export class GameCloudController {
           console.error(`[GameCloud Launch] Request Body:`, axiosError.config.data);
 
           if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
-            return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'This game is currently unavailable.' });
+            return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'Game is currently unavailable.' });
           }
           if (typeof gcError === 'string' && (gcError.toLowerCase().includes('invalid game') || gcError.toLowerCase().includes('not found'))) {
-            return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_UID', message: 'Game provider UID is not configured correctly.' });
+            return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME', message: 'Game configuration is invalid.' });
           }
 
           // Preserve the original status code and error from GameCloud
@@ -170,7 +194,7 @@ export class GameCloudController {
           });
         }
 
-        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED', message: axiosError.message });
+        return res.status(500).json({ status: 'FAILED', error: 'NETWORK_ERROR', message: 'Game provider is temporarily unavailable.' });
       }
 
     } catch (err: any) {
@@ -245,7 +269,7 @@ export class GameCloudController {
     }
 
     try {
-      const { action, amount, provider_txn_id, game_code } = req.body;
+      const { action, amount, provider_txn_id, game_code, currency } = req.body;
 
       // Ensure user exists
       const user = await prisma.user.findUnique({
@@ -290,6 +314,17 @@ export class GameCloudController {
 
       // Idempotency check handled by GameTransactionService
 
+      const txCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'INR';
+
+      if (user.wallet.currency.toUpperCase() !== txCurrency) {
+        console.error(`[GameCloud Callback] Currency Mismatch! Player: ${playerId}, Wallet: ${user.wallet.currency}, Request: ${txCurrency}`);
+        return res.status(400).json({ 
+          status: 'FAILED', 
+          error: 'CURRENCY_MISMATCH', 
+          message: `Wallet currency (${user.wallet.currency}) does not match game currency (${txCurrency}).`
+        });
+      }
+
       if (action === 'bet') {
         if (Number(user.wallet.balance) < Number(amount)) {
           return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
@@ -302,7 +337,7 @@ export class GameCloudController {
           transactionId: provider_txn_id,
           amount: Number(amount),
           type: 'BET',
-          currency: 'INR',
+          currency: txCurrency,
         });
 
       } else if (action === 'win') {
@@ -313,7 +348,7 @@ export class GameCloudController {
           transactionId: provider_txn_id,
           amount: Number(amount),
           type: 'WIN',
-          currency: 'INR',
+          currency: txCurrency,
         });
 
       } else if (action === 'refund') {
@@ -324,7 +359,7 @@ export class GameCloudController {
           transactionId: provider_txn_id,
           amount: Number(amount),
           type: 'REFUND',
-          currency: 'INR',
+          currency: txCurrency,
         });
 
       } else {
