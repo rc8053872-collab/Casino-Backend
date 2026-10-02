@@ -97,17 +97,18 @@
   }
 
   model Game {
-    id           String        @id @default(auto()) @map("_id") @db.ObjectId
-    slug         String        @unique
-    name         String
-    category     String
-    providerId   String
-    thumbnail    String?
-    status       Status        @default(ACTIVE)
-    minBet       Float?
-    maxBet       Float?
-    displayOrder Int           @default(0)
-    history      GameHistory[]
+    id                  String        @id @default(auto()) @map("_id") @db.ObjectId
+    slug                String        @unique
+    name                String
+    category            String
+    providerId          String
+    thumbnail           String?
+    status              Status        @default(ACTIVE)
+    minBet              Float?
+    maxBet              Float?
+    displayOrder        Int           @default(0)
+    supportedCurrencies String[]      @default([]) // e.g. ["INR", "PKR"]
+    history             GameHistory[]
   }
 
   model GameHistory {
