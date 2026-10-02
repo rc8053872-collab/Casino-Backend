@@ -92,8 +92,6 @@ export class GameCloudController {
       try {
         const payload = {
           reseller_id: RESELLER_ID,
-          token: API_TOKEN,
-          api_token: API_TOKEN,
           player_id: player_id,
           game_uid: externalGameUid,
           mode: 'seamless',
@@ -105,9 +103,9 @@ export class GameCloudController {
           headers: {
             'X-API-Token': API_TOKEN,
             'X-Secret-Key': SECRET_KEY,
-            'Content-Type': 'application/json',
             'Origin': 'https://maltiplayx.com',
-            'Referer': 'https://maltiplayx.com/'
+            'Referer': 'https://maltiplayx.com/',
+            'Content-Type': 'application/json'
           },
           timeout: 10000 // 10s timeout
         });
@@ -123,15 +121,24 @@ export class GameCloudController {
 
         const gcError = response.data?.error || response.data?.message || 'Unknown error from GameCloud';
         console.error(`[GameCloud Launch] Failed from provider: player=${player_id}, game=${externalGameUid}, status=${response.data?.status}, error=${gcError}`);
+        console.error(`[GameCloud Launch] Request Body:`, payload);
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
           return res.status(401).json({ status: 'FAILED', error: 'GAMECLOUD_AUTHENTICATION_FAILED' });
         }
 
+        if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
+          return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'This game is currently unavailable.' });
+        }
+        
+        if (typeof gcError === 'string' && (gcError.toLowerCase().includes('invalid game') || gcError.toLowerCase().includes('not found'))) {
+          return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_UID', message: 'Game provider UID is not configured correctly.' });
+        }
+
         return res.status(400).json({
           status: 'FAILED',
           error: 'GAMECLOUD_LAUNCH_FAILED',
-          details: gcError
+          message: typeof gcError === 'string' ? gcError : JSON.stringify(gcError)
         });
 
       } catch (axiosError: any) {
@@ -146,16 +153,24 @@ export class GameCloudController {
           const gcError = respData?.error || respData?.message || '';
 
           console.error(`[GameCloud Launch] HTTP ${axiosError.response.status}: error=${gcError}`);
+          console.error(`[GameCloud Launch] Request Body:`, axiosError.config.data);
+
+          if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
+            return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'This game is currently unavailable.' });
+          }
+          if (typeof gcError === 'string' && (gcError.toLowerCase().includes('invalid game') || gcError.toLowerCase().includes('not found'))) {
+            return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME_UID', message: 'Game provider UID is not configured correctly.' });
+          }
 
           // Preserve the original status code and error from GameCloud
           return res.status(axiosError.response.status).json({ 
             status: 'FAILED', 
             error: 'GAMECLOUD_LAUNCH_FAILED',
-            details: gcError || JSON.stringify(respData)
+            message: gcError || JSON.stringify(respData)
           });
         }
 
-        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED', details: axiosError.message });
+        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_LAUNCH_FAILED', message: axiosError.message });
       }
 
     } catch (err: any) {
