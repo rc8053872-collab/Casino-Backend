@@ -101,7 +101,7 @@ export class AdminController {
 
   static async approveDeposit(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = String(req.params.id);
       const transaction = await prisma.transaction.findUnique({ where: { id } });
       if (!transaction || transaction.type !== 'DEPOSIT' || transaction.status !== 'PENDING') {
          return res.status(400).json({ error: 'Invalid or already processed deposit' });
@@ -125,7 +125,7 @@ export class AdminController {
 
   static async rejectDeposit(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = String(req.params.id);
       const transaction = await prisma.transaction.findUnique({ where: { id } });
       if (!transaction || transaction.type !== 'DEPOSIT' || transaction.status !== 'PENDING') {
          return res.status(400).json({ error: 'Invalid or already processed deposit' });
