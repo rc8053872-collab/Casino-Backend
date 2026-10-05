@@ -4,6 +4,7 @@ import { GameController } from '../controllers/GameController';
 const router = Router();
 
 router.get('/catalog', GameController.getCatalog);
+router.get('/providers', GameController.getProviders);
 
 // Protected by auth
 router.post('/:slug/launch', GameController.launchGame);
