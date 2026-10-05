@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Game catalog sync started...");
   
-  const games = [
+  const games: any[] = [
     {
       slug: "spribe_aviator",
       name: "Aviator",
