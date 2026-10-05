@@ -17,7 +17,7 @@ export class GameController {
       
       const { provider } = req.query;
       if (provider) {
-        whereClause.provider = String(provider);
+        whereClause.providerId = String(provider);
       }
       
       if (inrOnly === 'true' || (!req.query.inrOnly && category === 'SLOT')) {
@@ -44,10 +44,10 @@ export class GameController {
     try {
       const providers = await prisma.game.findMany({
         where: { status: 'ACTIVE' },
-        select: { provider: true },
-        distinct: ['provider']
+        select: { providerId: true },
+        distinct: ['providerId']
       });
-      res.json(providers.map(p => p.provider).filter(Boolean));
+      res.json(providers.map(p => p.providerId).filter(Boolean));
     } catch (error) {
       next(error);
     }
