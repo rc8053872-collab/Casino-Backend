@@ -101,6 +101,7 @@
     slug                String        @unique
     name                String
     category            String
+    provider            String?
     providerId          String
     thumbnail           String?
     status              Status        @default(ACTIVE)
@@ -122,4 +123,12 @@
     status      RoundStatus
     providerRef String?
     createdAt   DateTime    @default(now())
+  }
+
+  model PaymentSetting {
+    id        String   @id @default(auto()) @map("_id") @db.ObjectId
+    upiId     String
+    qrCodeUrl String?
+    isActive  Boolean  @default(true)
+    updatedAt DateTime @updatedAt
   }
