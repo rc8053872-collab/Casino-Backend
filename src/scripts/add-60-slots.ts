@@ -386,8 +386,10 @@ async function parseAndAddGames() {
     // Select up to 3 newly added/updated games
     const testGames = games.filter(g => g.dbStatus === 'Added' || g.dbStatus === 'Updated').slice(0, 3);
     for (let i = 0; i < testGames.length; i++) {
-        testGames[i].testResult = await testGameCloud(testGames[i].uid);
-        console.log(`New game #${i+1} result:`, testGames[i].testResult);
+        const game = testGames[i];
+        if (!game) continue;
+        game.testResult = await testGameCloud(game.uid);
+        console.log(`New game #${i+1} result:`, game.testResult);
     }
     
     console.log("\n| Game | Provider | UID | DB Status | INR Test |");
