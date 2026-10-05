@@ -249,15 +249,15 @@ UID: 6b072dcb3eedf445e0260fc2de83316
 
 async function parseAndAddGames() {
     const lines = gamesList.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const games: {name?: string, provider?: string, uid?: string}[] = [];
+    const games: {name: string, provider: string, uid: string, dbStatus: string, testResult: string}[] = [];
     
-    let current: {name?: string, provider?: string, uid?: string} = {};
+    let current: any = {};
     for (const line of lines) {
         if (/^\d+\./.test(line)) {
             if (current.uid) {
-                games.push(current);
+                games.push(current as any);
             }
-            current = { name: line.replace(/^\d+\.\s*/, '') };
+            current = { name: line.replace(/^\d+\.\s*/, ''), dbStatus: '', testResult: '' };
         } else if (line.startsWith('Provider:')) {
             current.provider = line.replace('Provider:', '').trim();
         } else if (line.startsWith('UID:')) {
@@ -265,7 +265,7 @@ async function parseAndAddGames() {
         }
     }
     if (current.uid) {
-        games.push(current);
+        games.push(current as any);
     }
     
     let added = 0;
@@ -279,62 +279,64 @@ async function parseAndAddGames() {
     for (const g of games) {
         if (!g.uid || g.uid.length < 5) {
             invalid++;
+            g.dbStatus = 'Invalid UID';
             continue;
         }
         
         let slug = (g.name || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + (g.provider || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        // Ensure slug is unique but clean
         slug = slug.replace(/-+$/, '');
         
         try {
             const existingByUid = dbGames.find(dbG => dbG.providerId === g.uid);
             
             if (existingByUid) {
-                // Duplicate UID
-                skipped++;
+                await prisma.game.update({
+                    where: { id: existingByUid.id },
+                    data: {
+                        name: g.name,
+                        provider: g.provider,
+                        category: 'SLOT',
+                        providerId: g.uid
+                    }
+                });
+                updated++;
+                g.dbStatus = 'Updated';
             } else {
-                // Check if slug exists, if yes, just update providerId
-                const existingBySlug = await prisma.game.findUnique({ where: { slug } });
-                
-                if (existingBySlug) {
-                    await prisma.game.update({
-                        where: { id: existingBySlug.id },
-                        data: {
-                            providerId: g.uid,
-                            category: 'slots'
-                        }
-                    });
-                    updated++;
-                } else {
-                    await prisma.game.create({
-                        data: {
-                            name: g.name || 'unknown',
-                            slug: slug,
-                            providerId: g.uid,
-                            category: 'slots',
-                            status: 'ACTIVE',
-                            thumbnail: '',
-                            displayOrder: 10
-                        }
-                    });
-                    added++;
+                let finalSlug = slug;
+                let counter = 1;
+                while (await prisma.game.findUnique({ where: { slug: finalSlug } })) {
+                    finalSlug = `${slug}-${counter}`;
+                    counter++;
                 }
+
+                await prisma.game.create({
+                    data: {
+                        name: g.name,
+                        slug: finalSlug,
+                        providerId: g.uid,
+                        provider: g.provider,
+                        category: 'SLOT',
+                        status: 'ACTIVE'
+                    }
+                });
+                added++;
+                g.dbStatus = 'Added';
             }
         } catch (e: any) {
             console.error(`Failed on ${g.name}: ${e.message}`);
             failed++;
+            g.dbStatus = 'Failed';
         }
     }
     
     console.log("=== FINAL REPORT ===");
+    console.log("Total requested:", games.length);
     console.log("Added:", added);
     console.log("Updated:", updated);
-    console.log("Skipped (Duplicate UID):", skipped);
+    console.log("Already matching/skipped:", skipped); // The logic updates anyway, so skipped is 0 based on instruction "If UID already exists UPDATE existing record"
     console.log("Invalid UID:", invalid);
-    console.log("Failed DB operation:", failed);
+    console.log("Failed DB operations:", failed);
     console.log("====================");
-    
-    // Now let's test a few games to see if they support INR!
     
     const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
     const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
@@ -342,23 +344,15 @@ async function parseAndAddGames() {
     const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || API_TOKEN;
     const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://orbitplay.com';
     
-    console.log("\\nTesting INR Launch with GameCloud...");
-    
-    const testGames = [
-        "bbe2320adc5c506e7e56a2d24d96a252", // Known working game (Aviator)
-        games[0]?.uid,
-        games[3]?.uid,
-        games[20]?.uid,
-        games[44]?.uid
-    ];
-    
-    for (const testUid of testGames) {
-        console.log(`\nTesting UID: ${testUid}`);
+    console.log("\nTesting INR Launch with GameCloud...");
+
+    async function testGameCloud(uid: string) {
+        if (!uid) return 'N/A';
         try {
             const payload = {
                 reseller_id: RESELLER_ID,
                 player_id: "test_player",
-                game_uid: testUid,
+                game_uid: uid,
                 mode: 'seamless',
                 currency_code: 'INR',
                 home_url: HOME_URL
@@ -376,14 +370,33 @@ async function parseAndAddGames() {
             });
             
             if (response.data?.status === 'SUCCESS') {
-                console.log(`✅ SUCCESS: Supports INR. Launch URL: ${response.data.game_launch_url.substring(0,50)}...`);
+                return `SUCCESS (${response.data.game_launch_url.substring(0,30)}...)`;
             } else {
-                let errStr = typeof response.data?.message === 'string' ? response.data.message : (typeof response.data?.error === 'string' ? response.data.error : JSON.stringify(response.data));
-                console.log(`❌ FAILED: ${errStr}`);
+                return typeof response.data?.message === 'string' ? response.data.message : (typeof response.data?.error === 'string' ? response.data.error : JSON.stringify(response.data));
             }
         } catch (e: any) {
-            console.log(`❌ EXCEPTION: ${e.message}`);
+            return `EXCEPTION: ${e.message}`;
         }
+    }
+    
+    // Existing game test (e.g. Aviator)
+    const existingResult = await testGameCloud('bbe2320adc5c506e7e56a2d24d96a252');
+    console.log("Existing INR game result:", existingResult);
+    
+    // Select up to 3 newly added/updated games
+    const testGames = games.filter(g => g.dbStatus === 'Added' || g.dbStatus === 'Updated').slice(0, 3);
+    for (let i = 0; i < testGames.length; i++) {
+        testGames[i].testResult = await testGameCloud(testGames[i].uid);
+        console.log(`New game #${i+1} result:`, testGames[i].testResult);
+    }
+    
+    console.log("\n| Game | Provider | UID | DB Status | INR Test |");
+    console.log("|------|----------|-----|-----------|----------|");
+    for (const g of games) {
+        let testRes = g.testResult || 'Not Tested';
+        // Truncate testRes for table
+        if (testRes.length > 30) testRes = testRes.substring(0, 27) + '...';
+        console.log(`| ${g.name} | ${g.provider} | ${g.uid} | ${g.dbStatus} | ${testRes} |`);
     }
 }
 parseAndAddGames();

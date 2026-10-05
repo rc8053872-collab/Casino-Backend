@@ -76,7 +76,15 @@ export class GameCloudController {
 
       const walletCurrency = user.wallet?.currency || 'INR';
 
-      if (game.supportedCurrencies && game.supportedCurrencies.length > 0) {
+      if (game.category === 'SLOT') {
+        if (!game.supportedCurrencies || !game.supportedCurrencies.includes(walletCurrency)) {
+          return res.status(400).json({
+            status: 'FAILED',
+            error: 'CURRENCY_NOT_SUPPORTED',
+            message: `This game is not available in ${walletCurrency}.`
+          });
+        }
+      } else if (game.supportedCurrencies && game.supportedCurrencies.length > 0) {
         if (!game.supportedCurrencies.includes(walletCurrency)) {
           return res.status(400).json({
             status: 'FAILED',
