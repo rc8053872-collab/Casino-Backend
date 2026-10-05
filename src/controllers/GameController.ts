@@ -7,11 +7,47 @@ export class GameController {
   
   static async getCatalog(req: Request, res: Response, next: NextFunction) {
     try {
+      const { category, inrOnly } = req.query;
+      
+      const whereClause: any = { status: 'ACTIVE' };
+      
+      if (category && category !== 'all' && category !== 'All') {
+        whereClause.category = String(category);
+      }
+      
+      const { provider } = req.query;
+      if (provider) {
+        whereClause.provider = String(provider);
+      }
+      
+      if (inrOnly === 'true' || (!req.query.inrOnly && category === 'SLOT')) {
+        // By default, if category is SLOT and inrOnly isn't explicitly false, filter for INR
+        // Or if inrOnly is explicitly true
+        whereClause.supportedCurrencies = { has: 'INR' };
+      }
+
+      if (inrOnly === 'false') {
+         // Show all active games for this category (no supportedCurrencies filter)
+      }
+
       const games = await prisma.game.findMany({
-        where: { status: 'ACTIVE' },
+        where: whereClause,
         orderBy: { displayOrder: 'asc' }
       });
       res.json(games);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getProviders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const providers = await prisma.game.findMany({
+        where: { status: 'ACTIVE' },
+        select: { provider: true },
+        distinct: ['provider']
+      });
+      res.json(providers.map(p => p.provider).filter(Boolean));
     } catch (error) {
       next(error);
     }
