@@ -74,6 +74,10 @@
     user          User          @relation(fields: [userId], references: [id])
     balance       Float         @default(0.00)
     lockedBalance Float         @default(0.00)
+    totalDeposited Float        @default(0.00)
+    totalWithdrawn Float        @default(0.00)
+    totalWon      Float         @default(0.00)
+    totalLost     Float         @default(0.00)
     currency      String        @default("INR")
     status        Status        @default(ACTIVE)
     transactions  Transaction[]
@@ -88,16 +92,35 @@
     amount         Float
     type           TxType
     status         TxStatus
+    balanceBefore  Float?
+    balanceAfter   Float?
+    currency       String   @default("INR")
     referenceId    String?   // External reference (provider transaction id)
     idempotencyKey String   @unique
+    gameId         String?  @db.ObjectId // added gameId if applicable
     gameHistoryId  String?  @db.ObjectId
     description    String?
     metadata       Json?
     createdAt      DateTime @default(now())
+    updatedAt      DateTime @default(now()) @updatedAt
+  }
+
+  model Provider {
+    id                  String        @id @default(auto()) @map("_id") @db.ObjectId
+    name                String        @unique
+    slug                String        @unique
+    status              Status        @default(ACTIVE)
+    apiBaseUrl          String?
+    launchEndpoint      String?
+    supportedCurrencies String[]      @default([])
+    metadata            Json?
+    games               Game[]
   }
 
   model Game {
     id                  String        @id @default(auto()) @map("_id") @db.ObjectId
+    
+    // --- EXISTING PRESERVED FIELDS ---
     slug                String        @unique
     name                String
     category            String
@@ -110,6 +133,25 @@
     displayOrder        Int           @default(0)
     supportedCurrencies String[]      @default([]) // e.g. ["INR", "PKR"]
     history             GameHistory[]
+
+    // --- NEW CATALOG FIELDS ---
+    gameUid             String?       // Actual integration code from the catalog
+    vendorId            String?       @db.ObjectId
+    vendor              Provider?     @relation(fields: [vendorId], references: [id])
+    normalizedName      String?
+    subCategory         String?
+    description         String?
+    banner              String?
+    launchType          String?
+    launchUrl           String?
+    mode                String?
+    isActive            Boolean       @default(true)
+    isFeatured          Boolean       @default(false)
+    isPopular           Boolean       @default(false)
+    sortOrder           Int           @default(0)
+    metadata            Json?
+    createdAt           DateTime?     @default(now())
+    updatedAt           DateTime?     @updatedAt
   }
 
   model GameHistory {
