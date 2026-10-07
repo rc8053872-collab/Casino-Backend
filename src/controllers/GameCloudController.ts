@@ -44,7 +44,7 @@ export class GameCloudController {
   static async launchGame(req: Request, res: Response) {
     try {
       const player_id = req.user?.id;
-      const { game_uid, currency_code } = req.body;
+      const game_uid = typeof req.body?.game_uid === 'string' ? req.body.game_uid.trim() : '';
 
       if (!player_id || !game_uid) {
         return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS', message: 'Player ID and Game UID are required' });
@@ -61,13 +61,16 @@ export class GameCloudController {
       }
 
       // 2. Validate Game
+      const gameIdentifiers: { gameUid?: string; providerId?: string; slug?: string; id?: string }[] = [
+        { gameUid: game_uid },
+        { providerId: game_uid },
+        { slug: game_uid },
+      ];
+      if (/^[a-f\d]{24}$/i.test(game_uid)) {
+        gameIdentifiers.push({ id: game_uid });
+      }
       const game = await prisma.game.findFirst({
-        where: {
-          OR: [
-            { slug: game_uid },
-            { providerId: game_uid }
-          ]
-        }
+        where: { OR: gameIdentifiers }
       });
 
       if (!game) {
@@ -95,7 +98,7 @@ export class GameCloudController {
       }
 
       // External provider game code
-      const externalGameUid = game.providerId || game.slug;
+      const externalGameUid = game.gameUid || game.providerId || game.slug;
 
       // 3. Setup GameCloud request
       const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
