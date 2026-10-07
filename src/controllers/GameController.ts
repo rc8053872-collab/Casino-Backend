@@ -7,34 +7,73 @@ export class GameController {
   
   static async getCatalog(req: Request, res: Response, next: NextFunction) {
     try {
-      const { category, inrOnly } = req.query;
-      
-      const whereClause: any = { status: 'ACTIVE' };
-      
+      let { page, limit, search, provider, category, inrOnly } = req.query;
+
+      const pageNumber = Math.max(1, parseInt(page as string) || 1);
+      const limitNumber = Math.min(100, Math.max(1, parseInt(limit as string) || 40));
+      const skip = (pageNumber - 1) * limitNumber;
+
+      const whereClause: any = {};
+
       if (category && category !== 'all' && category !== 'All') {
         whereClause.category = String(category);
       }
-      
-      const { provider } = req.query;
-      if (provider) {
-        whereClause.providerId = String(provider);
+
+      if (provider && provider !== 'all' && provider !== 'All') {
+        whereClause.provider = String(provider); // New catalog uses 'provider', legacy could use providerId but 'provider' is populated
       }
-      
+
+      if (search) {
+        whereClause.OR = [
+          { name: { contains: String(search), mode: 'insensitive' } },
+          { provider: { contains: String(search), mode: 'insensitive' } },
+          { slug: { contains: String(search), mode: 'insensitive' } }
+        ];
+      }
+
+      // Legacy fallback logic for inrOnly
       if (inrOnly === 'true' || (!req.query.inrOnly && category === 'SLOT')) {
-        // By default, if category is SLOT and inrOnly isn't explicitly false, filter for INR
-        // Or if inrOnly is explicitly true
         whereClause.supportedCurrencies = { has: 'INR' };
       }
 
-      if (inrOnly === 'false') {
-         // Show all active games for this category (no supportedCurrencies filter)
-      }
+      const [total, games] = await Promise.all([
+        prisma.game.count({ where: whereClause }),
+        prisma.game.findMany({
+          where: whereClause,
+          skip,
+          take: limitNumber,
+          orderBy: [{ displayOrder: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }]
+        })
+      ]);
 
-      const games = await prisma.game.findMany({
-        where: whereClause,
-        orderBy: { displayOrder: 'asc' }
+      const formattedGames = games.map(g => ({
+        id: g.id,
+        slug: g.slug,
+        name: g.name,
+        provider: g.provider || g.providerId,
+        providerId: g.providerId,
+        gameUid: g.gameUid || g.providerId,
+        category: g.category,
+        subCategory: g.subCategory,
+        thumbnail: g.thumbnail,
+        banner: g.banner,
+        status: g.status,
+        isActive: g.isActive,
+        isFeatured: g.isFeatured,
+        isPopular: g.isPopular,
+        sortOrder: g.sortOrder,
+        displayOrder: g.displayOrder // legacy support
+      }));
+
+      res.json({
+        games: formattedGames,
+        pagination: {
+          total,
+          page: pageNumber,
+          limit: limitNumber,
+          totalPages: Math.ceil(total / limitNumber)
+        }
       });
-      res.json(games);
     } catch (error) {
       next(error);
     }
@@ -42,12 +81,26 @@ export class GameController {
 
   static async getProviders(req: Request, res: Response, next: NextFunction) {
     try {
-      const providers = await prisma.game.findMany({
-        where: { status: 'ACTIVE' },
+      const providersList = await prisma.provider.findMany({
+        orderBy: { name: 'asc' }
+      });
+      
+      const providerNames = providersList.map(p => p.name);
+
+      // Legacy fallback: also fetch from providerId string if some don't have Provider records
+      const legacyProviders = await prisma.game.findMany({
+        where: { providerId: { not: "" } },
         select: { providerId: true },
         distinct: ['providerId']
       });
-      res.json(providers.map(p => p.providerId).filter(Boolean));
+
+      for (const lp of legacyProviders) {
+        if (!providerNames.includes(lp.providerId)) {
+          providerNames.push(lp.providerId);
+        }
+      }
+
+      res.json(providerNames);
     } catch (error) {
       next(error);
     }
