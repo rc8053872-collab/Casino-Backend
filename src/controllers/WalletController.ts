@@ -8,10 +8,10 @@ export class WalletController {
   
   static async getBalance(req: Request, res: Response, next: NextFunction) {
     try {
-      const walletId = req.user?.walletId; // Assumes auth middleware sets this
-      if (!walletId) return res.status(400).json({ error: 'Wallet not found for user' });
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Please log in to view your wallet.' });
 
-      const wallet = await WalletService.getBalance(walletId);
+      const wallet = await WalletService.getOrCreateForUser(userId);
       res.json({ balance: wallet.balance, lockedBalance: wallet.lockedBalance, currency: wallet.currency });
     } catch (error) {
       next(error);
@@ -20,13 +20,14 @@ export class WalletController {
 
   static async getTransactions(req: Request, res: Response, next: NextFunction) {
     try {
-      const walletId = req.user?.walletId;
-      if (!walletId) return res.status(400).json({ error: 'Wallet not found' });
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: 'Please log in to view your transactions.' });
+      const wallet = await WalletService.getOrCreateForUser(userId);
 
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
 
-      const transactions = await WalletService.getTransactions(walletId, limit, offset);
+      const transactions = await WalletService.getTransactions(wallet.id, limit, offset);
       res.json(transactions);
     } catch (error) {
       next(error);

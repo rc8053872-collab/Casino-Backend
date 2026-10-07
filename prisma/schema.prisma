@@ -53,8 +53,19 @@
     status       Status    @default(ACTIVE)
     wallet       Wallet?
     sessions     Session[]
+    referralCode      ReferralCode?
+    referredByCode    String?
+    referralBonusAwardedAt DateTime?
     createdAt    DateTime  @default(now())
     updatedAt    DateTime  @updatedAt
+  }
+
+  model ReferralCode {
+    id        String   @id @default(auto()) @map("_id") @db.ObjectId
+    userId    String   @unique @db.ObjectId
+    user      User     @relation(fields: [userId], references: [id])
+    code      String   @unique
+    createdAt DateTime @default(now())
   }
 
   model Session {
@@ -173,4 +184,10 @@
     qrCodeUrl String?
     isActive  Boolean  @default(true)
     updatedAt DateTime @updatedAt
+  }
+
+  model SupportSetting {
+    id              String   @id @default(auto()) @map("_id") @db.ObjectId
+    whatsappNumber  String
+    updatedAt       DateTime @updatedAt
   }

@@ -5,6 +5,7 @@ import gameRoutes from './gameRoutes';
 
 import { GameCloudController } from '../controllers/GameCloudController';
 import { AuthController } from '../controllers/AuthController';
+import { MemberController } from '../controllers/MemberController';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -13,6 +14,8 @@ const router = Router();
 router.post('/v1/auth/register', AuthController.register);
 router.post('/v1/auth/login', AuthController.login);
 router.get('/v1/auth/me', requireAuth, AuthController.getMe);
+router.get('/v1/referrals/me', requireAuth, MemberController.getReferralInfo);
+router.get('/support/settings', MemberController.getSupportSettings);
 
 router.use('/wallet', walletRoutes);
 router.use('/admin', adminRoutes);

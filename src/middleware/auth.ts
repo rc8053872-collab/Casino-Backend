@@ -4,11 +4,6 @@ import jwt from 'jsonwebtoken';
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    // Check if we want to fallback to a dummy user for testing, or block it
-    if (process.env.NODE_ENV === 'development') {
-      req.user = { id: '6abb9d660aadf780eea7f21f' };
-      return next();
-    }
     return res.status(401).json({ status: 'FAILED', error: 'UNAUTHORIZED', message: 'Please login to play this game.' });
   }
 

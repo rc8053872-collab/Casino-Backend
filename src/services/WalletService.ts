@@ -152,6 +152,14 @@ export class WalletService {
     return wallet;
   }
 
+  static async getOrCreateForUser(userId: string) {
+    return prisma.wallet.upsert({
+      where: { userId },
+      create: { userId, balance: 0, currency: 'INR' },
+      update: {}
+    });
+  }
+
   static async getTransactions(walletId: string, limit = 50, offset = 0) {
     return prisma.transaction.findMany({
       where: { walletId },

@@ -1,26 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../prismaClient';
-import { v4 as uuidv4 } from 'uuid';
+import { WalletService } from '../services/WalletService';
+import { areDemoPaymentsEnabled } from '../config/demoPayments';
 
 export class PaymentController {
-  
-  static async getPaymentSettings(req: Request, res: Response, next: NextFunction) {
+  static async getPaymentSettings(_req: Request, res: Response, next: NextFunction) {
     try {
-      let setting = await prisma.paymentSetting.findFirst({
+      const setting = await prisma.paymentSetting.findFirst({
         where: { isActive: true },
         orderBy: { updatedAt: 'desc' }
       });
-      // If no setting, return a default mock
-      if (!setting) {
-        setting = { 
-          id: 'default', 
-          upiId: 'admin@ybl', 
-          qrCodeUrl: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/QR_code_for_mobile_English_Wikipedia.svg', // Placeholder QR
-          isActive: true, 
-          updatedAt: new Date() 
-        } as any;
+
+      const configured = Boolean(setting?.upiId && setting.qrCodeUrl);
+      if (!configured && process.env.NODE_ENV === 'development') {
+        return res.json({
+          configured: true,
+          isDemo: true,
+          demoSubmissionsEnabled: areDemoPaymentsEnabled(),
+          upiId: 'orbit-demo@upi',
+          qrCodeUrl: '/demo-payment-qr.svg'
+        });
       }
-      res.json(setting);
+
+      return res.json({
+        configured,
+        isDemo: false,
+        demoSubmissionsEnabled: false,
+        upiId: configured ? setting?.upiId : null,
+        qrCodeUrl: configured ? setting?.qrCodeUrl : null
+      });
     } catch (error) {
       next(error);
     }
@@ -28,37 +36,68 @@ export class PaymentController {
 
   static async submitDeposit(req: Request, res: Response, next: NextFunction) {
     try {
-      const walletId = req.user?.walletId;
-      const { amount, utrNumber } = req.body;
-      
-      if (!walletId || !amount || amount < 200 || !utrNumber) {
-        return res.status(400).json({ error: 'Minimum deposit is ₹200 and UTR number is required' });
+      const userId = req.user?.id;
+      const { amount, utrNumber, proofDataUrl } = req.body;
+
+      if (!userId) {
+        return res.status(401).json({ error: 'Please log in to request a deposit.' });
       }
 
-      // Check for duplicate UTR
-      const existing = await prisma.transaction.findFirst({
-        where: { referenceId: utrNumber }
+      if (!Number.isInteger(amount) || amount < 100 || amount > 10000) {
+        return res.status(400).json({ error: 'Enter a whole amount from ₹100 to ₹10,000.' });
+      }
+
+      if (typeof utrNumber !== 'string' || !/^[a-z\d]{6,22}$/i.test(utrNumber.trim())) {
+        return res.status(400).json({ error: 'Enter a valid UTR/reference number (6–22 letters or digits).' });
+      }
+
+      if (
+        typeof proofDataUrl !== 'string'
+        || proofDataUrl.length > 2_100_000
+        || !/^data:image\/(?:png|jpeg|webp);base64,[a-z\d+/]+=*$/i.test(proofDataUrl)
+      ) {
+        return res.status(400).json({ error: 'Upload a payment screenshot in PNG, JPEG, or WebP format (maximum 1.5 MB).' });
+      }
+
+      const setting = await prisma.paymentSetting.findFirst({
+        where: { isActive: true },
+        select: { upiId: true, qrCodeUrl: true }
       });
 
-      if (existing) {
-         return res.status(400).json({ error: 'This UTR number has already been submitted.' });
+      const isDemo = !setting?.upiId || !setting.qrCodeUrl;
+      if (isDemo && !areDemoPaymentsEnabled()) {
+        return res.status(503).json({ error: 'Deposits are temporarily unavailable. Please try again later.' });
       }
 
-      // Create a PENDING transaction
-      const transaction = await prisma.transaction.create({
-        data: {
-          walletId,
-          amount: Number(amount),
-          type: 'DEPOSIT',
-          status: 'PENDING',
-          idempotencyKey: `dep-${uuidv4()}`,
-          referenceId: utrNumber,
-          description: 'Manual UPI Deposit',
-          metadata: { utrNumber }
+      const wallet = await WalletService.getOrCreateForUser(userId);
+      const normalizedUtr = utrNumber.trim().toUpperCase();
+
+      try {
+        const transaction = await prisma.transaction.create({
+          data: {
+            walletId: wallet.id,
+            amount,
+            type: 'DEPOSIT',
+            status: 'PENDING',
+            idempotencyKey: `deposit-utr-${normalizedUtr}`,
+            referenceId: normalizedUtr,
+            description: 'Manual UPI deposit',
+            metadata: { utrNumber: normalizedUtr, proofDataUrl, isDemo }
+          }
+        });
+
+        return res.status(201).json({
+          message: isDemo
+            ? 'Demo deposit request submitted. Admin approval will credit the development wallet only.'
+            : 'Deposit request submitted. Your wallet will be credited after admin verification.',
+          transaction
+        });
+      } catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+          return res.status(409).json({ error: 'This UTR/reference number has already been submitted.' });
         }
-      });
-
-      res.json({ message: 'Deposit request submitted successfully. Waiting for admin approval.', transaction });
+        throw error;
+      }
     } catch (error) {
       next(error);
     }

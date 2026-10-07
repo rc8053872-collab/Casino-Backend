@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { AdminController } from '../controllers/AdminController';
 import adminWalletRoutes from './adminWalletRoutes';
+import { requireAuth } from '../middleware/auth';
+import { requireAdmin } from '../middleware/requireAdmin';
 
 const router = Router();
+
+router.use(requireAuth, requireAdmin);
 
 // Dashboard Metrics
 router.get('/dashboard', AdminController.getDashboardMetrics);
@@ -20,6 +24,8 @@ router.post('/deposits/:id/reject', AdminController.rejectDeposit);
 
 // Payment Settings
 router.post('/payments/settings', AdminController.updatePaymentSettings);
+router.get('/support/settings', AdminController.getSupportSettings);
+router.post('/support/settings', AdminController.updateSupportSettings);
 
 // Game review
 router.get('/games/review', AdminController.getGamesForReview);
