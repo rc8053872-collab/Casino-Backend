@@ -44,10 +44,11 @@ export class GameCloudController {
   static async launchGame(req: Request, res: Response) {
     try {
       const player_id = req.user?.id;
+      const game_slug = typeof req.body?.game_slug === 'string' ? req.body.game_slug.trim() : '';
       const game_uid = typeof req.body?.game_uid === 'string' ? req.body.game_uid.trim() : '';
 
-      if (!player_id || !game_uid) {
-        return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS', message: 'Player ID and Game UID are required' });
+      if (!player_id || (!game_slug && !game_uid)) {
+        return res.status(400).json({ status: 'FAILED', error: 'MISSING_PARAMETERS', message: 'Player ID and game identifier are required' });
       }
 
       // 1. Validate Player
@@ -61,17 +62,32 @@ export class GameCloudController {
       }
 
       // 2. Validate Game
-      const gameIdentifiers: { gameUid?: string; providerId?: string; slug?: string; id?: string }[] = [
-        { gameUid: game_uid },
-        { providerId: game_uid },
-        { slug: game_uid },
-      ];
-      if (/^[a-f\d]{24}$/i.test(game_uid)) {
-        gameIdentifiers.push({ id: game_uid });
+      let game = game_slug
+        ? await prisma.game.findUnique({ where: { slug: game_slug } })
+        : null;
+
+      if (!game && game_uid) {
+        const matches = await prisma.game.findMany({
+          where: {
+            OR: [
+              { gameUid: game_uid },
+              { providerId: game_uid },
+              { slug: game_uid },
+              ...(/^[a-f\d]{24}$/i.test(game_uid) ? [{ id: game_uid }] : []),
+            ],
+          },
+          take: 2,
+        });
+
+        if (matches.length > 1) {
+          return res.status(409).json({
+            status: 'FAILED',
+            error: 'AMBIGUOUS_GAME_UID',
+            message: 'This game identifier matches multiple games. Please launch using the game slug.',
+          });
+        }
+        game = matches[0] || null;
       }
-      const game = await prisma.game.findFirst({
-        where: { OR: gameIdentifiers }
-      });
 
       if (!game) {
         return res.status(404).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });

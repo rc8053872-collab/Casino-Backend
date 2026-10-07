@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { Prisma } from '@prisma/client';
 import prisma from '../prismaClient';
 
 export class AdminController {
@@ -157,6 +158,87 @@ export class AdminController {
       });
 
       res.json(newSetting);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getGamesForReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const inactiveGames = await prisma.game.findMany({
+        where: { status: 'INACTIVE', isActive: false },
+        orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
+      });
+
+      const games = inactiveGames
+        .filter((game) => {
+          const metadata = game.metadata;
+          return metadata !== null &&
+            typeof metadata === 'object' &&
+            !Array.isArray(metadata) &&
+            (metadata.status === 'INTEGRATION_PENDING' || metadata.isNewCatalog === true);
+        })
+        .map((game) => ({
+          id: game.id,
+          slug: game.slug,
+          name: game.name,
+          provider: game.provider,
+          providerId: game.providerId,
+          gameUid: game.gameUid,
+          category: game.category,
+          subCategory: game.subCategory,
+          thumbnail: game.thumbnail,
+          banner: game.banner,
+          supportedCurrencies: game.supportedCurrencies,
+          createdAt: game.createdAt,
+        }));
+
+      res.json({ games });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async reviewGame(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { decision } = req.body as { decision?: string };
+      if (decision !== 'accept' && decision !== 'reject') {
+        return res.status(400).json({ error: 'Decision must be accept or reject.' });
+      }
+
+      const game = await prisma.game.findUnique({ where: { id: String(req.params.id) } });
+      if (!game) {
+        return res.status(404).json({ error: 'Game not found.' });
+      }
+
+      const metadata = game.metadata !== null &&
+        typeof game.metadata === 'object' &&
+        !Array.isArray(game.metadata)
+        ? game.metadata
+        : {};
+      const isPending =
+        metadata.status === 'INTEGRATION_PENDING' || metadata.isNewCatalog === true;
+      if (!isPending || game.status !== 'INACTIVE' || game.isActive) {
+        return res.status(409).json({ error: 'This game is no longer waiting for review.' });
+      }
+
+      const accepted = decision === 'accept';
+      const updatedGame = await prisma.game.update({
+        where: { id: game.id },
+        data: {
+          status: accepted ? 'ACTIVE' : 'BANNED',
+          isActive: accepted,
+          metadata: {
+            ...metadata,
+            status: accepted ? 'APPROVED' : 'REJECTED',
+            reviewStatus: accepted ? 'APPROVED' : 'REJECTED',
+            reviewedAt: new Date().toISOString(),
+          } as Prisma.InputJsonValue,
+        },
+        select: { id: true, slug: true, status: true, isActive: true },
+      });
+
+      res.json({ game: updatedGame });
     } catch (error) {
       next(error);
     }

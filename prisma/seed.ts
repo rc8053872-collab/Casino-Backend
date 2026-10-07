@@ -12,6 +12,7 @@ async function main() {
       slug: "spribe_aviator",
       name: "Aviator",
       providerId: "50fb95404b19b978a8983f2ff6cafc6d",
+      gameUid: "50fb95404b19b978a8983f2ff6cafc6d",
       category: "crash",
       status: "ACTIVE",
       thumbnail: "aviator.png",
@@ -40,6 +41,20 @@ async function main() {
       displayOrder: 3,
       minBet: 10,
       maxBet: 10000,
+    },
+    {
+      slug: "beach-penalties-expanse",
+      name: "Beach Penalties",
+      provider: "expanse",
+      providerId: "",
+      gameUid: "8f4fe3ad2c3c1f8d6eb8c7d5fcf074d7",
+      category: "SPORTS",
+      status: "INACTIVE",
+      isActive: false,
+      supportedCurrencies: ["INR"],
+      thumbnail: "/game-assets/beach-penalties-expanse/thumbnail.webp",
+      banner: "/game-assets/beach-penalties-expanse/banner.webp",
+      metadata: { status: "INTEGRATION_PENDING", isNewCatalog: true },
     },
   ];
 

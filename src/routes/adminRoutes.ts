@@ -21,6 +21,10 @@ router.post('/deposits/:id/reject', AdminController.rejectDeposit);
 // Payment Settings
 router.post('/payments/settings', AdminController.updatePaymentSettings);
 
+// Game review
+router.get('/games/review', AdminController.getGamesForReview);
+router.post('/games/:id/review', AdminController.reviewGame);
+
 // Wallet actions (manual adjustments etc)
 router.use('/wallet', adminWalletRoutes);
 
