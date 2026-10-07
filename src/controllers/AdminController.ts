@@ -275,21 +275,34 @@ export class AdminController {
       const { upiId, qrCodeUrl } = req.body;
       const normalizedUpiId = typeof upiId === 'string' ? upiId.trim() : '';
       const normalizedQrCodeUrl = typeof qrCodeUrl === 'string' ? qrCodeUrl.trim() : '';
-      let safeQrUrl = normalizedQrCodeUrl.startsWith('/') && !normalizedQrCodeUrl.startsWith('//');
-      if (/^https?:\/\//i.test(normalizedQrCodeUrl)) {
+      
+      let safeQrUrl = false;
+      
+      // Allow relative local URLs
+      if (normalizedQrCodeUrl.startsWith('/') && !normalizedQrCodeUrl.startsWith('//')) {
+        safeQrUrl = true;
+      } 
+      // Allow valid HTTP/HTTPS URLs
+      else if (/^https?:\/\//i.test(normalizedQrCodeUrl)) {
         try {
           const parsedQrUrl = new URL(normalizedQrCodeUrl);
           safeQrUrl = parsedQrUrl.protocol === 'https:' || parsedQrUrl.protocol === 'http:';
         } catch {
           safeQrUrl = false;
         }
+      } 
+      // Allow base64 data URLs
+      else if (/^data:image\/(?:png|jpeg|webp);base64,[a-z\d+/]+=*$/i.test(normalizedQrCodeUrl)) {
+        safeQrUrl = true;
       }
 
       if (!/^[\w.-]{2,256}@[a-z\d.-]{2,64}$/i.test(normalizedUpiId)) {
         return res.status(400).json({ error: 'Enter a valid UPI ID.' });
       }
-      if (!normalizedQrCodeUrl || normalizedQrCodeUrl.length > 4096 || !safeQrUrl) {
-        return res.status(400).json({ error: 'A valid QR image URL is required.' });
+      
+      // Increased length to 3MB to allow for base64 image data
+      if (!normalizedQrCodeUrl || normalizedQrCodeUrl.length > 3_100_000 || !safeQrUrl) {
+        return res.status(400).json({ error: 'A valid QR image URL or uploaded image is required.' });
       }
 
       const newSetting = await prisma.$transaction(async (tx) => {
