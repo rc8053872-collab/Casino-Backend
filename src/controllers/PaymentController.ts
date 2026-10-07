@@ -4,7 +4,7 @@ import { WalletService } from '../services/WalletService';
 import { areDemoPaymentsEnabled } from '../config/demoPayments';
 
 export class PaymentController {
-  static async getPaymentSettings(_req: Request, res: Response, next: NextFunction) {
+  static async getPaymentSettings(req: Request, res: Response, next: NextFunction) {
     try {
       const setting = await prisma.paymentSetting.findFirst({
         where: { isActive: true },
@@ -22,7 +22,7 @@ export class PaymentController {
         });
       }
 
-      return res.json({
+      res.json({
         configured,
         isDemo: false,
         demoSubmissionsEnabled: false,
@@ -70,8 +70,8 @@ export class PaymentController {
       }
 
       const wallet = await WalletService.getOrCreateForUser(userId);
-      const normalizedUtr = utrNumber.trim().toUpperCase();
 
+      const normalizedUtr = utrNumber.trim().toUpperCase();
       try {
         const transaction = await prisma.transaction.create({
           data: {

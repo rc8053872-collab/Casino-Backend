@@ -35,6 +35,7 @@ export class AuthController {
         return res.status(409).json({ status: 'FAILED', message: 'An account already exists with this email or phone number.' });
       }
 
+      const passwordHash = await bcrypt.hash(password, 12);
       const normalizedReferralCode = typeof referralCode === 'string' ? referralCode.trim().toUpperCase() : '';
       let referringCode: string | null = null;
       if (normalizedReferralCode) {
@@ -48,7 +49,6 @@ export class AuthController {
         referringCode = referral.code;
       }
 
-      const passwordHash = await bcrypt.hash(password, 12);
       let newReferralCode = randomBytes(5).toString('hex').toUpperCase();
       while (await prisma.referralCode.findUnique({ where: { code: newReferralCode }, select: { id: true } })) {
         newReferralCode = randomBytes(5).toString('hex').toUpperCase();
@@ -107,7 +107,6 @@ export class AuthController {
           : { mobile: normalizedIdentifier.replace(/[^\d+]/g, '') },
         include: { wallet: true }
       });
-
       if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
         return res.status(401).json({ status: 'FAILED', message: 'Email/phone or password is incorrect.' });
       }
@@ -115,82 +114,69 @@ export class AuthController {
         return res.status(403).json({ status: 'FAILED', message: 'Account is not active.' });
       }
 
-      return AuthController.createLoginResponse(user, res);
+      if (user.referredByCode && !user.referralBonusAwardedAt) {
+        await prisma.$transaction(async (tx) => {
+          const claim = await tx.user.updateMany({
+            where: { id: user.id, referredByCode: { not: null }, referralBonusAwardedAt: null },
+            data: { referralBonusAwardedAt: new Date() }
+          });
+          if (claim.count !== 1) return;
+
+          const wallet = await tx.wallet.upsert({
+            where: { userId: user.id },
+            create: { userId: user.id, balance: 0, currency: 'INR' },
+            update: {}
+          });
+          await tx.wallet.update({
+            where: { id: wallet.id },
+            data: { balance: { increment: 30 } }
+          });
+          await tx.transaction.create({
+            data: {
+              walletId: wallet.id,
+              amount: 30,
+              type: 'BONUS',
+              status: 'COMPLETED',
+              balanceBefore: wallet.balance,
+              balanceAfter: Number(wallet.balance) + 30,
+              idempotencyKey: `referral-signup-bonus-${user.id}`,
+              description: '₹30 invite signup bonus',
+              metadata: { referralCode: user.referredByCode }
+            }
+          });
+        });
+      }
+
+      const wallet = await prisma.wallet.upsert({
+        where: { userId: user.id },
+        create: { userId: user.id, balance: 0, currency: 'INR' },
+        update: {}
+      });
+      const refreshedWallet = user.referredByCode
+        ? await prisma.wallet.findUniqueOrThrow({ where: { userId: user.id } })
+        : wallet;
+      const token = jwt.sign(
+        { id: user.id, walletId: refreshedWallet.id },
+        process.env.JWT_SECRET || 'secret',
+        { expiresIn: '24h' }
+      );
+
+      return res.json({
+        status: 'SUCCESS',
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          phone: user.mobile,
+          balance: refreshedWallet.balance,
+          currency: refreshedWallet.currency,
+          role: user.role
+        }
+      });
     } catch (error) {
       console.error('Login error:', error);
       return res.status(500).json({ status: 'FAILED', message: 'Login failed. Please try again.' });
     }
-  }
-
-  private static async createLoginResponse(
-    user: {
-      id: string;
-      mobile: string | null;
-      email: string | null;
-      role: string;
-      referredByCode: string | null;
-      referralBonusAwardedAt: Date | null;
-      wallet: { id: string; balance: number; currency: string } | null;
-    },
-    res: Response
-  ) {
-    let wallet = user.wallet ?? await prisma.wallet.upsert({
-      where: { userId: user.id },
-      create: { userId: user.id, balance: 0, currency: 'INR' },
-      update: {}
-    });
-
-    if (user.referredByCode && !user.referralBonusAwardedAt) {
-      await prisma.$transaction(async (tx) => {
-        const claim = await tx.user.updateMany({
-          where: { id: user.id, referredByCode: { not: null }, referralBonusAwardedAt: null },
-          data: { referralBonusAwardedAt: new Date() }
-        });
-        if (claim.count !== 1) return;
-
-        const bonusWallet = await tx.wallet.upsert({
-          where: { userId: user.id },
-          create: { userId: user.id, balance: 0, currency: 'INR' },
-          update: {}
-        });
-        await tx.wallet.update({
-          where: { id: bonusWallet.id },
-          data: { balance: { increment: 30 } }
-        });
-        await tx.transaction.create({
-          data: {
-            walletId: bonusWallet.id,
-            amount: 30,
-            type: 'BONUS',
-            status: 'COMPLETED',
-            balanceBefore: bonusWallet.balance,
-            balanceAfter: Number(bonusWallet.balance) + 30,
-            idempotencyKey: `referral-signup-bonus-${user.id}`,
-            description: '₹30 invite signup bonus',
-            metadata: { referralCode: user.referredByCode }
-          }
-        });
-      });
-      wallet = await prisma.wallet.findUniqueOrThrow({ where: { userId: user.id } });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, walletId: wallet.id },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: '24h' }
-    );
-    return res.json({
-      status: 'SUCCESS',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        phone: user.mobile,
-        balance: wallet.balance,
-        currency: wallet.currency,
-        role: user.role
-      }
-    });
   }
 
   static async getMe(req: Request, res: Response) {
@@ -200,11 +186,11 @@ export class AuthController {
         return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
       }
 
-      const user = await prisma.user.findUnique({
+      const user: any = await (prisma.user as any).findUnique({
         where: { id: userId },
-        include: { wallet: true },
-        omit: { passwordHash: true }
+        include: { wallet: true }
       });
+
       if (!user) {
         return res.status(404).json({ status: 'FAILED', message: 'User not found' });
       }
@@ -213,45 +199,13 @@ export class AuthController {
         status: 'SUCCESS',
         user: {
           id: user.id,
-          email: user.email,
           phone: user.mobile,
           balance: user.wallet?.balance || 0,
-          currency: user.wallet?.currency || 'INR',
-          role: user.role
+          currency: user.wallet?.currency || 'INR'
         }
       });
-    } catch (error) {
-      console.error('Profile lookup error:', error);
-      return res.status(500).json({ status: 'FAILED', message: 'Could not load your account.' });
-    }
-  }
-
-  static async changePassword(req: Request, res: Response) {
-    try {
-      const userId = req.user?.id;
-      const { currentPassword, newPassword } = req.body;
-      if (
-        typeof currentPassword !== 'string'
-        || typeof newPassword !== 'string'
-        || newPassword.length < 8
-        || newPassword.length > 128
-      ) {
-        return res.status(400).json({ status: 'FAILED', message: 'Enter your current password and a new password of 8 to 128 characters.' });
-      }
-      if (!userId) {
-        return res.status(401).json({ status: 'FAILED', message: 'Please log in again.' });
-      }
-
-      const user = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
-      if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
-        return res.status(400).json({ status: 'FAILED', message: 'Current password is incorrect.' });
-      }
-      const passwordHash = await bcrypt.hash(newPassword, 12);
-      await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-      return res.json({ status: 'SUCCESS', message: 'Password updated successfully.' });
-    } catch (error) {
-      console.error('Password update error:', error);
-      return res.status(500).json({ status: 'FAILED', message: 'Could not update the password. Please try again.' });
+    } catch (error: any) {
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
     }
   }
 }

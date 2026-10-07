@@ -325,7 +325,8 @@ export class GameCloudController {
         where: {
           OR: [
             { slug: game_code },
-            { providerId: game_code }
+            { providerId: game_code },
+            { gameUid: game_code }
           ]
         }
       });

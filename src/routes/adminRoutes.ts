@@ -16,11 +16,6 @@ router.get('/users', AdminController.getUsers);
 
 // Withdrawals
 router.get('/withdrawals', AdminController.getWithdrawals);
-router.get('/withdrawals/stats', AdminController.getWithdrawalStats);
-router.get('/withdrawals/:id', AdminController.getWithdrawal);
-router.post('/withdrawals/:id/investigate', AdminController.flagWithdrawalForReview);
-router.post('/withdrawals/:id/approve', AdminController.approveWithdrawal);
-router.post('/withdrawals/:id/reject', AdminController.rejectWithdrawal);
 
 // Deposits
 router.get('/deposits', AdminController.getDeposits);
@@ -32,9 +27,14 @@ router.post('/payments/settings', AdminController.updatePaymentSettings);
 router.get('/support/settings', AdminController.getSupportSettings);
 router.post('/support/settings', AdminController.updateSupportSettings);
 
-// Game review
+// Games
+router.get('/games', AdminController.getGames);
 router.get('/games/review', AdminController.getGamesForReview);
 router.post('/games/:id/review', AdminController.reviewGame);
+router.patch('/games/:id', AdminController.updateGame);
+
+// Providers
+router.get('/providers', AdminController.getProviders);
 
 // Wallet actions (manual adjustments etc)
 router.use('/wallet', adminWalletRoutes);
