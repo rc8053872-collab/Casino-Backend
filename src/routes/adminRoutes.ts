@@ -16,6 +16,11 @@ router.get('/users', AdminController.getUsers);
 
 // Withdrawals
 router.get('/withdrawals', AdminController.getWithdrawals);
+router.get('/withdrawals/stats', AdminController.getWithdrawalStats);
+router.get('/withdrawals/:id', AdminController.getWithdrawal);
+router.post('/withdrawals/:id/investigate', AdminController.flagWithdrawalForReview);
+router.post('/withdrawals/:id/approve', AdminController.approveWithdrawal);
+router.post('/withdrawals/:id/reject', AdminController.rejectWithdrawal);
 
 // Deposits
 router.get('/deposits', AdminController.getDeposits);
