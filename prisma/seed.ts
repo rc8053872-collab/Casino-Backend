@@ -56,6 +56,20 @@ async function main() {
       banner: "/game-assets/beach-penalties-expanse/banner.webp",
       metadata: { status: "AVAILABLE", isNewCatalog: true },
     },
+    {
+      slug: "beer-tycoon-jdb",
+      name: "Beer Tycoon",
+      provider: "JDB",
+      providerId: "",
+      gameUid: "b133cf4f3c32b80344b381cc9f26442a",
+      category: "ARCADE",
+      status: "ACTIVE",
+      isActive: true,
+      supportedCurrencies: ["INR"],
+      thumbnail: "/game-assets/beer-tycoon-jdb/card.webp",
+      banner: "/game-assets/beer-tycoon-jdb/banner.webp",
+      metadata: { status: "AVAILABLE", isNewCatalog: true },
+    },
   ];
 
   for (const game of games) {
