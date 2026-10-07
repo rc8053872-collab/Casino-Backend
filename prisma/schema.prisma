@@ -47,7 +47,7 @@
     username     String?   @unique
     mobile       String?   @unique
     email        String?   @unique
-    googleId     String?   @unique
+    googleId     String?
     passwordHash String
     role         Role      @default(USER)
     status       Status    @default(ACTIVE)
