@@ -49,12 +49,12 @@ async function main() {
       providerId: "",
       gameUid: "8f4fe3ad2c3c1f8d6eb8c7d5fcf074d7",
       category: "SPORTS",
-      status: "INACTIVE",
-      isActive: false,
+      status: "ACTIVE",
+      isActive: true,
       supportedCurrencies: ["INR"],
       thumbnail: "/game-assets/beach-penalties-expanse/thumbnail.webp",
       banner: "/game-assets/beach-penalties-expanse/banner.webp",
-      metadata: { status: "INTEGRATION_PENDING", isNewCatalog: true },
+      metadata: { status: "AVAILABLE", isNewCatalog: true },
     },
   ];
 
