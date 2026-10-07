@@ -158,7 +158,9 @@ export class AdminController {
         failedComplianceCases: failedCount,
         complianceStatus: 'Admin reviewed',
         complianceReason: 'Review bank details before approving each payout.',
-        successRate: totalCount ? Number(((completedCount / totalCount) * 100).toFixed(1)) : 0,
+        successRate: completedCount + failedCount
+          ? Number(((completedCount / (completedCount + failedCount)) * 100).toFixed(1))
+          : 0,
         successRatePeriod: 'All withdrawal requests'
       });
     } catch (error) {
@@ -218,6 +220,20 @@ export class AdminController {
         const metadata = withdrawal.metadata && typeof withdrawal.metadata === 'object' && !Array.isArray(withdrawal.metadata)
           ? withdrawal.metadata as Prisma.JsonObject
           : {};
+        const bankDetails = metadata.bank;
+        if (
+          !bankDetails
+          || typeof bankDetails !== 'object'
+          || Array.isArray(bankDetails)
+          || !('accountNumber' in bankDetails)
+          || typeof bankDetails.accountNumber !== 'string'
+          || !('ifscCode' in bankDetails)
+          || typeof bankDetails.ifscCode !== 'string'
+          || !('branchName' in bankDetails)
+          || typeof bankDetails.branchName !== 'string'
+        ) {
+          return 'missing_bank_details';
+        }
         const updated = await tx.transaction.updateMany({
           where: { id, type: 'WITHDRAWAL', status: 'PENDING' },
           data: {
@@ -243,6 +259,9 @@ export class AdminController {
       });
       if (approvalResult === 'amount_mismatch') {
         return res.status(400).json({ error: 'Paid amount must exactly match the requested withdrawal amount.' });
+      }
+      if (approvalResult === 'missing_bank_details') {
+        return res.status(409).json({ error: 'Bank details are missing for this withdrawal; it cannot be marked paid.' });
       }
       if (approvalResult !== 'approved') {
         return res.status(409).json({ error: 'Withdrawal not found or already processed.' });
