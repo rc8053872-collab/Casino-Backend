@@ -10,6 +10,9 @@ router.use(requireAuth, requireAdmin);
 
 // Dashboard Metrics
 router.get('/dashboard', AdminController.getDashboardMetrics);
+router.get('/dashboard/transactions', AdminController.getDashboardTransactions);
+router.get('/dashboard/activity', AdminController.getDashboardActivity);
+router.get('/dashboard/financial', AdminController.getDashboardFinancial);
 
 // Users
 router.get('/users', AdminController.getUsers);

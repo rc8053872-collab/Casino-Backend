@@ -31,14 +31,94 @@ export class AdminController {
         prisma.game.count({ where: { status: 'ACTIVE' } })
       ]);
 
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const startOfHour = new Date();
+      startOfHour.setHours(startOfHour.getHours() - 1);
+
+      const [newUsersToday, depositsLastHour, liveGames] = await Promise.all([
+        prisma.user.count({ where: { createdAt: { gte: startOfDay } } }),
+        prisma.transaction.count({
+          where: { type: 'DEPOSIT', status: 'COMPLETED', createdAt: { gte: startOfHour } }
+        }),
+        prisma.game.findMany({
+          where: { status: 'ACTIVE' },
+          select: { id: true, name: true, status: true },
+          take: 5
+        })
+      ]);
+
       res.json({
         totalUsers,
         activeUsers,
         totalDeposits: totalDeposits._sum.amount || 0,
         totalWithdrawals: totalWithdrawals._sum.amount || 0,
         pendingWithdrawals,
-        activeGames
+        activeGames,
+        newUsersToday,
+        depositsLastHour,
+        liveGames
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getDashboardTransactions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const transactions = await prisma.transaction.findMany({
+        take: 10,
+        orderBy: { createdAt: 'desc' },
+        include: { wallet: { include: { user: { select: { username: true } } } } }
+      });
+      
+      const formatted = transactions.map(t => ({
+        id: t.id,
+        user: t.wallet?.user?.username || 'Unknown',
+        type: t.type,
+        amount: t.amount,
+        timeAgo: t.createdAt.toISOString(),
+        status: t.status
+      }));
+      
+      res.json(formatted);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getDashboardActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Mock data for the activity chart
+      const data = [
+        { time: '00:00', players: 120, sessions: 450 },
+        { time: '04:00', players: 80, sessions: 300 },
+        { time: '08:00', players: 250, sessions: 900 },
+        { time: '12:00', players: 400, sessions: 1500 },
+        { time: '16:00', players: 550, sessions: 2200 },
+        { time: '20:00', players: 800, sessions: 3500 },
+        { time: '23:59', players: 600, sessions: 2500 }
+      ];
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getDashboardFinancial(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Mock data for the financial chart
+      const data = [
+        { date: 'Mon', deposits: 4000, withdrawals: 2400 },
+        { date: 'Tue', deposits: 3000, withdrawals: 1398 },
+        { date: 'Wed', deposits: 2000, withdrawals: 9800 },
+        { date: 'Thu', deposits: 2780, withdrawals: 3908 },
+        { date: 'Fri', deposits: 1890, withdrawals: 4800 },
+        { date: 'Sat', deposits: 2390, withdrawals: 3800 },
+        { date: 'Sun', deposits: 3490, withdrawals: 4300 }
+      ];
+      res.json(data);
     } catch (error) {
       next(error);
     }
