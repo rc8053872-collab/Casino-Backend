@@ -215,21 +215,53 @@ export class AdminController {
 
   static async getUsers(req: Request, res: Response, next: NextFunction) {
     try {
-      const users = await prisma.user.findMany({
-        select: {
-          id: true,
-          username: true,
-          role: true,
-          status: true,
-          createdAt: true,
-          wallet: {
-            select: { balance: true, currency: true }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 50
+      const page = Math.max(1, parseInt(String(req.query.page)) || 1);
+      const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit)) || 50));
+      const search = req.query.search ? String(req.query.search) : undefined;
+
+      const where: any = {};
+      if (search) {
+        where.OR = [
+          { username: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { mobile: { contains: search } }
+        ];
+        if (/^[a-f\d]{24}$/i.test(search)) {
+          where.OR.push({ id: search });
+        }
+      }
+
+      const [total, users] = await Promise.all([
+        prisma.user.count({ where }),
+        prisma.user.findMany({
+          where,
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            mobile: true,
+            role: true,
+            status: true,
+            createdAt: true,
+            wallet: {
+              select: { balance: true, currency: true, status: true, totalDeposited: true, totalWithdrawn: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit
+        })
+      ]);
+
+      res.json({
+        users,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit) || 1
+        }
       });
-      res.json(users);
     } catch (error) {
       next(error);
     }
