@@ -200,6 +200,8 @@ export class AuthController {
         user: {
           id: user.id,
           phone: user.mobile,
+          email: user.email,
+          role: user.role,
           balance: user.wallet?.balance || 0,
           currency: user.wallet?.currency || 'INR'
         }
