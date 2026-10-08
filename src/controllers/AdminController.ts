@@ -247,6 +247,7 @@ export class AdminController {
         orderBy: { createdAt: 'desc' },
         take: 50
       });
+      res.json(withdrawals);
     } catch (error) {
       next(error);
     }
@@ -254,17 +255,87 @@ export class AdminController {
 
   static async getDeposits(req: Request, res: Response, next: NextFunction) {
     try {
-      const deposits = await prisma.transaction.findMany({
-        where: { type: 'DEPOSIT' },
-        include: {
-          wallet: {
-            include: { user: { select: { username: true, mobile: true } } }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 50
+      const page = Math.max(1, parseInt(String(req.query.page)) || 1);
+      const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit)) || 50));
+      const status = req.query.status as any;
+
+      const where: any = { type: 'DEPOSIT' };
+      if (status && ['PENDING', 'COMPLETED', 'FAILED'].includes(status)) {
+        where.status = status;
+      }
+
+      const [total, deposits] = await Promise.all([
+        prisma.transaction.count({ where }),
+        prisma.transaction.findMany({
+          where,
+          include: {
+            wallet: {
+              include: { user: { select: { id: true, username: true, email: true, mobile: true } } }
+            }
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit
+        })
+      ]);
+
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const hourStart = new Date(now.getTime() - 60 * 60 * 1000);
+
+      const allRecent = await prisma.transaction.findMany({
+        where: { type: 'DEPOSIT', createdAt: { gte: monthStart } },
+        select: { amount: true, createdAt: true, status: true }
       });
-      res.json(deposits);
+
+      let totalMonthVolume = 0;
+      let totalMonthCount = 0;
+      let todayVolume = 0;
+      let todayCount = 0;
+      let lastHourVolume = 0;
+      let lastHourCount = 0;
+      let successCount = 0;
+
+      for (const d of allRecent) {
+        if (d.status === 'COMPLETED') {
+          totalMonthVolume += d.amount;
+          totalMonthCount++;
+          if (d.createdAt >= todayStart) {
+            todayVolume += d.amount;
+            todayCount++;
+          }
+          if (d.createdAt >= hourStart) {
+            lastHourVolume += d.amount;
+            lastHourCount++;
+          }
+        }
+        if (d.status === 'COMPLETED' || d.status === 'FAILED') {
+          successCount += d.status === 'COMPLETED' ? 1 : 0;
+        }
+      }
+
+      const totalAttempted = allRecent.filter(d => d.status !== 'PENDING').length;
+      const successRate = totalAttempted > 0 ? (successCount / totalAttempted) * 100 : 100;
+
+      res.json({
+        deposits,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit)
+        },
+        stats: {
+          totalMonthVolume,
+          totalMonthCount,
+          todayVolume,
+          todayCount,
+          lastHourCount,
+          lastHourVolume,
+          successRate
+        }
+      });
     } catch (error) {
       next(error);
     }
