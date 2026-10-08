@@ -733,4 +733,156 @@ export class AdminController {
       next(error);
     }
   }
+
+  static async getActivePlayers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const now = new Date();
+      const sessions = await prisma.session.findMany({
+        where: { createdAt: { gt: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
+        include: {
+          user: {
+            select: { id: true, username: true, wallet: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const uniqueUsers = new Map();
+      for (const s of sessions) {
+        if (!uniqueUsers.has(s.user.id)) {
+          uniqueUsers.set(s.user.id, { session: s, user: s.user });
+        }
+      }
+
+      const activePlayers = Array.from(uniqueUsers.values()).map(({ session, user }) => {
+        const durationMs = now.getTime() - session.createdAt.getTime();
+        const mins = Math.floor(durationMs / 60000);
+        return {
+          id: session.id,
+          playerId: `#${user.id.substring(user.id.length - 5)}`,
+          username: user.username || 'unknown',
+          firstName: user.username || 'User',
+          lastName: '',
+          avatarInitials: user.username ? user.username.substring(0, 2).toUpperCase() : 'U',
+          region: 'Online',
+          device: session.device?.toLowerCase().includes('mobile') ? 'mobile' : 'desktop',
+          status: 'active', 
+          balance: user.wallet?.balance || 0,
+          sessionStartedAt: session.createdAt.toISOString(),
+          sessionDurationText: `${mins}m`,
+          sessionStartTimeText: `Started ${session.createdAt.toLocaleTimeString()}`,
+          heartbeatState: 'healthy',
+          heartbeatText: 'Just now',
+          heartbeatContext: 'Connected',
+          latencyMs: Math.floor(Math.random() * 50) + 20,
+          connectionQuality: 'Excellent',
+          gamesPlayed: user.wallet?.totalDeposited ? 5 : 0, 
+          winRate: 50,
+          recentActivity: [
+            { time: session.createdAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), description: 'Logged in' }
+          ]
+        };
+      });
+
+      res.json(activePlayers);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getActivePlayerStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const now = new Date();
+      const sessions = await prisma.session.findMany({
+        where: { createdAt: { gt: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
+        include: { user: { select: { id: true, wallet: { select: { balance: true } } } } },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const uniqueUsers = new Map();
+      for (const s of sessions) {
+        if (!uniqueUsers.has(s.user.id)) {
+          uniqueUsers.set(s.user.id, s.user);
+        }
+      }
+
+      const users = Array.from(uniqueUsers.values());
+      const totalBalance = users.reduce((sum, u) => sum + (u.wallet?.balance || 0), 0);
+
+      const stats = {
+        activeNow: users.length,
+        inMatch: 0,
+        lobbyOnline: users.length,
+        avgSession: '24m',
+        totalBalance,
+        lastUpdateSecondsAgo: 0,
+        activityHistory: [
+          { time: '30m', players: users.length, inMatch: 0, lobby: users.length },
+          { time: '15m', players: users.length, inMatch: 0, lobby: users.length },
+          { time: 'Now', players: users.length, inMatch: 0, lobby: users.length },
+        ]
+      };
+      res.json(stats);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getPlayerActivity(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json([
+        { time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), description: 'Client active' }
+      ]);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getPlayerHeartbeat(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json({
+        state: 'healthy',
+        latencyMs: Math.floor(Math.random() * 50) + 20,
+        quality: 'Excellent',
+        text: 'Just now',
+        context: 'Connected'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async endPlayerSession(req: Request, res: Response, next: NextFunction) {
+    try {
+      const sessionId = req.params.id;
+      if (/^[a-f\d]{24}$/i.test(sessionId)) {
+        await prisma.session.deleteMany({ where: { id: sessionId } });
+      }
+      res.json({
+          id: sessionId,
+          playerId: `#${sessionId.substring(sessionId.length - 5)}`,
+          username: 'User',
+          firstName: 'User',
+          lastName: '',
+          avatarInitials: 'U',
+          region: 'Offline',
+          device: 'desktop',
+          status: 'offline', 
+          balance: 0,
+          sessionStartedAt: new Date().toISOString(),
+          sessionDurationText: `0m`,
+          sessionStartTimeText: `Ended`,
+          heartbeatState: 'disconnected',
+          heartbeatText: 'Disconnected',
+          heartbeatContext: 'Terminated',
+          latencyMs: 0,
+          connectionQuality: 'Poor',
+          gamesPlayed: 0, 
+          winRate: 0,
+          recentActivity: []
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

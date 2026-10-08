@@ -14,6 +14,13 @@ router.get('/dashboard/transactions', AdminController.getDashboardTransactions);
 router.get('/dashboard/activity', AdminController.getDashboardActivity);
 router.get('/dashboard/financial', AdminController.getDashboardFinancial);
 
+// Active Players
+router.get('/players/active', AdminController.getActivePlayers);
+router.get('/players/active/stats', AdminController.getActivePlayerStats);
+router.get('/players/active/:id/activity', AdminController.getPlayerActivity);
+router.get('/players/active/:id/heartbeat', AdminController.getPlayerHeartbeat);
+router.post('/players/active/:id/end-session', AdminController.endPlayerSession);
+
 // Users
 router.get('/users', AdminController.getUsers);
 
