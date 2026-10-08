@@ -296,6 +296,17 @@ export class AdminController {
     }
   }
 
+  static async getGames(req: Request, res: Response, next: NextFunction) {
+    try {
+      const games = await prisma.game.findMany({
+        orderBy: { displayOrder: 'asc' }
+      });
+      res.json(games);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getWithdrawals(req: Request, res: Response, next: NextFunction) {
     try {
       const withdrawals = await prisma.transaction.findMany({
