@@ -94,8 +94,13 @@ export class WalletController {
         return res.status(400).json({ error: 'Invalid withdrawal request' });
       }
 
-      const response = await paymentService.requestWithdrawal(walletId, amount, destinationAccount);
-      res.json(response);
+      const settings = await prisma.paymentSetting.findFirst({ orderBy: { updatedAt: 'desc' } });
+      const feePercent = settings?.withdrawFeePercent || 0;
+      const feeAmount = (amount * feePercent) / 100;
+      const finalAmount = amount - feeAmount;
+
+      const response = await paymentService.requestWithdrawal(walletId, amount, finalAmount, destinationAccount, feeAmount);
+      res.json({ ...response, originalAmount: amount, feeAmount, finalAmount });
     } catch (error) {
       next(error);
     }

@@ -35,17 +35,17 @@ export class PaymentService {
     return WalletService.deposit(walletId, amount, providerTxId, providerTxId, 'Deposit via Payment Gateway');
   }
 
-  async requestWithdrawal(walletId: string, amount: number, destinationAccount: string) {
+  async requestWithdrawal(walletId: string, totalAmount: number, netAmount: number, destinationAccount: string, feeAmount: number = 0) {
     // 1. Lock funds locally first
     const lockIdempotency = `lock-with-${uuidv4()}`;
-    await WalletService.lockFunds(walletId, amount, lockIdempotency, 'Lock funds for withdrawal');
+    await WalletService.lockFunds(walletId, totalAmount, lockIdempotency, `Lock funds for withdrawal (Fee: ${feeAmount})`);
 
     try {
       // 2. Request withdrawal from provider
       const response = await this.provider.createWithdrawal({
         walletId,
-        amount,
-        currency: 'USD',
+        amount: netAmount,
+        currency: 'INR',
         destinationAccount
       });
 
@@ -53,16 +53,16 @@ export class PaymentService {
       if (response.status === 'COMPLETED') {
         const withIdempotency = `with-${response.transactionId}`;
         // Release the lock
-        await WalletService.releaseFunds(walletId, amount, `release-${lockIdempotency}`, 'Release for completed withdrawal');
+        await WalletService.releaseFunds(walletId, totalAmount, `release-${lockIdempotency}`, 'Release for completed withdrawal');
         // Actually withdraw
-        await WalletService.withdraw(walletId, amount, withIdempotency, response.transactionId, 'Withdrawal processed successfully');
+        await WalletService.withdraw(walletId, totalAmount, withIdempotency, response.transactionId, `Withdrawal processed successfully. Fee deducted: ${feeAmount}`);
       }
       
       return response;
     } catch (error) {
       logger.error('Withdrawal failed at provider', error);
       // Release locked funds back to user balance on failure
-      await WalletService.releaseFunds(walletId, amount, `release-fail-${lockIdempotency}`, 'Withdrawal failed, releasing funds');
+      await WalletService.releaseFunds(walletId, totalAmount, `release-fail-${lockIdempotency}`, 'Withdrawal failed, releasing funds');
       throw error;
     }
   }

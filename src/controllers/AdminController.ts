@@ -493,9 +493,10 @@ export class AdminController {
 
   static async updatePaymentSettings(req: Request, res: Response, next: NextFunction) {
     try {
-      const { upiId, qrCodeUrl } = req.body;
+      const { upiId, qrCodeUrl, withdrawFeePercent } = req.body;
       const normalizedUpiId = typeof upiId === 'string' ? upiId.trim() : '';
       const normalizedQrCodeUrl = typeof qrCodeUrl === 'string' ? qrCodeUrl.trim() : '';
+      const parsedFee = withdrawFeePercent !== undefined ? parseFloat(withdrawFeePercent) : 0;
       
       let safeQrUrl = false;
       
@@ -526,6 +527,10 @@ export class AdminController {
         return res.status(400).json({ error: 'A valid QR image URL or uploaded image is required.' });
       }
 
+      if (parsedFee < 0 || parsedFee > 100 || isNaN(parsedFee)) {
+        return res.status(400).json({ error: 'Withdrawal fee must be between 0 and 100 percent.' });
+      }
+
       const newSetting = await prisma.$transaction(async (tx) => {
         await tx.paymentSetting.updateMany({
           where: { isActive: true },
@@ -533,11 +538,11 @@ export class AdminController {
         });
 
         return tx.paymentSetting.create({
-          data: { upiId: normalizedUpiId, qrCodeUrl: normalizedQrCodeUrl, isActive: true }
+          data: { upiId: normalizedUpiId, qrCodeUrl: normalizedQrCodeUrl, withdrawFeePercent: parsedFee, isActive: true }
         });
       });
 
-      return res.json({ configured: true, upiId: newSetting.upiId, qrCodeUrl: newSetting.qrCodeUrl });
+      return res.json({ configured: true, upiId: newSetting.upiId, qrCodeUrl: newSetting.qrCodeUrl, withdrawFeePercent: newSetting.withdrawFeePercent });
     } catch (error) {
       next(error);
     }

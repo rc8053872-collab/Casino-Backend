@@ -27,7 +27,8 @@ export class PaymentController {
         isDemo: false,
         demoSubmissionsEnabled: false,
         upiId: configured ? setting?.upiId : null,
-        qrCodeUrl: configured ? setting?.qrCodeUrl : null
+        qrCodeUrl: configured ? setting?.qrCodeUrl : null,
+        withdrawFeePercent: setting?.withdrawFeePercent || 0
       });
     } catch (error) {
       next(error);

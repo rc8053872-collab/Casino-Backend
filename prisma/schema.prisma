@@ -182,6 +182,7 @@
     id        String   @id @default(auto()) @map("_id") @db.ObjectId
     upiId     String
     qrCodeUrl String?
+    withdrawFeePercent Float @default(0)
     isActive  Boolean  @default(true)
     updatedAt DateTime @updatedAt
   }
