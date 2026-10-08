@@ -267,6 +267,35 @@ export class AdminController {
     }
   }
 
+  static async updateUserStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = String(req.params.id);
+      const { status } = req.body;
+      
+      if (!['ACTIVE', 'INACTIVE', 'BANNED'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+
+      if (!/^[a-f\d]{24}$/i.test(id)) {
+        return res.status(400).json({ error: 'Invalid user ID' });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id },
+        data: { status }
+      });
+
+      // If banned, kill active sessions
+      if (status === 'BANNED') {
+        await prisma.session.deleteMany({ where: { userId: id } });
+      }
+
+      res.json({ id: updatedUser.id, status: updatedUser.status });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async getWithdrawals(req: Request, res: Response, next: NextFunction) {
     try {
       const withdrawals = await prisma.transaction.findMany({

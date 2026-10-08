@@ -23,6 +23,7 @@ router.post('/players/active/:id/end-session', AdminController.endPlayerSession)
 
 // Users
 router.get('/users', AdminController.getUsers);
+router.patch('/users/:id/status', AdminController.updateUserStatus);
 
 // Withdrawals
 router.get('/withdrawals', AdminController.getWithdrawals);
