@@ -25,8 +25,6 @@ router.post('/players/active/:id/end-session', AdminController.endPlayerSession)
 router.get('/users', AdminController.getUsers);
 router.patch('/users/:id/status', AdminController.updateUserStatus);
 
-// Games
-router.get('/games', AdminController.getGames);
 
 // Withdrawals
 router.get('/withdrawals', AdminController.getWithdrawals);
@@ -43,9 +41,12 @@ router.post('/support/settings', AdminController.updateSupportSettings);
 
 // Games
 router.get('/games', AdminController.getGames);
+router.post('/games', AdminController.createGame);
 router.get('/games/review', AdminController.getGamesForReview);
 router.post('/games/:id/review', AdminController.reviewGame);
 router.patch('/games/:id', AdminController.updateGame);
+router.patch('/games/:id/status', AdminController.updateGameStatus);
+router.delete('/games/:id', AdminController.deleteGame);
 
 // Providers
 router.get('/providers', AdminController.getProviders);

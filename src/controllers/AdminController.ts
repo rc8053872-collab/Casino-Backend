@@ -296,17 +296,6 @@ export class AdminController {
     }
   }
 
-  static async getGames(req: Request, res: Response, next: NextFunction) {
-    try {
-      const games = await prisma.game.findMany({
-        orderBy: { displayOrder: 'asc' }
-      });
-      res.json(games);
-    } catch (error) {
-      next(error);
-    }
-  }
-
   static async getWithdrawals(req: Request, res: Response, next: NextFunction) {
     try {
       const withdrawals = await prisma.transaction.findMany({
@@ -921,6 +910,57 @@ export class AdminController {
           winRate: 0,
           recentActivity: []
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+  static async createGame(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, category, status, description, minBet, maxBet, supportedCurrencies } = req.body;
+      const gameUid = req.body.id || `GAME-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
+      const game = await prisma.game.create({
+        data: {
+          name,
+          slug,
+          category,
+          status: status === 'live' || status === 'ACTIVE' ? 'ACTIVE' : (status === 'disabled' || status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE'),
+          description,
+          minBet,
+          maxBet,
+          supportedCurrencies: supportedCurrencies || ['INR'],
+          providerId: 'internal',
+          gameUid,
+        }
+      });
+      res.json(game);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateGameStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      let prismaStatus: 'ACTIVE' | 'INACTIVE' | 'BANNED' = 'ACTIVE';
+      if (status === 'disabled' || status === 'INACTIVE') prismaStatus = 'INACTIVE';
+      
+      const game = await prisma.game.update({
+        where: { id },
+        data: { status: prismaStatus }
+      });
+      res.json(game);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteGame(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await prisma.game.delete({ where: { id } });
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
