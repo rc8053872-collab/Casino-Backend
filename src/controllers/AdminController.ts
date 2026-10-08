@@ -130,24 +130,29 @@ export class AdminController {
           const hour = h.createdAt.getHours();
           let bucket = Math.floor(hour / 4) * 4;
           label = `${String(bucket).padStart(2, '0')}:00`;
-          if (grouped[label]) {
-            grouped[label].activeSet.add(h.userId);
-            grouped[label].playing += 1;
+          const group = grouped[label];
+          if (group) {
+            group.activeSet.add(h.userId);
+            group.playing += 1;
           }
         } else {
           label = h.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          if (grouped[label]) {
-            grouped[label].activeSet.add(h.userId);
-            grouped[label].playing += 1;
+          const group = grouped[label];
+          if (group) {
+            group.activeSet.add(h.userId);
+            group.playing += 1;
           }
         }
       });
 
-      const data = Object.keys(grouped).map(label => ({
-        label,
-        active: grouped[label].activeSet.size,
-        playing: grouped[label].playing
-      }));
+      const data = Object.keys(grouped).map(label => {
+        const group = grouped[label]!;
+        return {
+          label,
+          active: group.activeSet.size,
+          playing: group.playing
+        };
+      });
 
       res.json(data);
     } catch (error) {
@@ -186,17 +191,21 @@ export class AdminController {
 
       transactions.forEach(t => {
         const label = t.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (grouped[label]) {
-          if (t.type === 'DEPOSIT') grouped[label].deposits += t.amount;
-          if (t.type === 'WITHDRAWAL') grouped[label].withdrawals += t.amount;
+        const group = grouped[label];
+        if (group) {
+          if (t.type === 'DEPOSIT') group.deposits += t.amount;
+          if (t.type === 'WITHDRAWAL') group.withdrawals += t.amount;
         }
       });
 
-      const data = Object.keys(grouped).map(label => ({
-        label,
-        deposits: grouped[label].deposits,
-        withdrawals: grouped[label].withdrawals
-      }));
+      const data = Object.keys(grouped).map(label => {
+        const group = grouped[label]!;
+        return {
+          label,
+          deposits: group.deposits,
+          withdrawals: group.withdrawals
+        };
+      });
 
       res.json(data);
     } catch (error) {
