@@ -90,16 +90,65 @@ export class AdminController {
 
   static async getDashboardActivity(req: Request, res: Response, next: NextFunction) {
     try {
-      // Mock data for the activity chart
-      const data = [
-        { time: '00:00', players: 120, sessions: 450 },
-        { time: '04:00', players: 80, sessions: 300 },
-        { time: '08:00', players: 250, sessions: 900 },
-        { time: '12:00', players: 400, sessions: 1500 },
-        { time: '16:00', players: 550, sessions: 2200 },
-        { time: '20:00', players: 800, sessions: 3500 },
-        { time: '23:59', players: 600, sessions: 2500 }
-      ];
+      const range = req.query.range as string || '7d';
+      let days = 7;
+      if (range === 'today') days = 1;
+      else if (range === '7d') days = 7;
+      else if (range === '30d') days = 30;
+
+      const startDate = new Date();
+      if (days === 1) {
+        startDate.setHours(0, 0, 0, 0);
+      } else {
+        startDate.setDate(startDate.getDate() - days);
+      }
+
+      const histories = await prisma.gameHistory.findMany({
+        where: { createdAt: { gte: startDate } },
+        select: { createdAt: true, userId: true }
+      });
+
+      const grouped: Record<string, { activeSet: Set<string>; playing: number }> = {};
+      
+      if (days === 1) {
+        for(let i = 0; i <= 24; i += 4) {
+          const label = `${String(i === 24 ? 23 : i).padStart(2, '0')}:${i === 24 ? '59' : '00'}`;
+          grouped[label] = { activeSet: new Set(), playing: 0 };
+        }
+      } else {
+        for(let i = days - 1; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          grouped[label] = { activeSet: new Set(), playing: 0 };
+        }
+      }
+
+      histories.forEach(h => {
+        let label = '';
+        if (days === 1) {
+          const hour = h.createdAt.getHours();
+          let bucket = Math.floor(hour / 4) * 4;
+          label = `${String(bucket).padStart(2, '0')}:00`;
+          if (grouped[label]) {
+            grouped[label].activeSet.add(h.userId);
+            grouped[label].playing += 1;
+          }
+        } else {
+          label = h.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (grouped[label]) {
+            grouped[label].activeSet.add(h.userId);
+            grouped[label].playing += 1;
+          }
+        }
+      });
+
+      const data = Object.keys(grouped).map(label => ({
+        label,
+        active: grouped[label].activeSet.size,
+        playing: grouped[label].playing
+      }));
+
       res.json(data);
     } catch (error) {
       next(error);
@@ -108,16 +157,47 @@ export class AdminController {
 
   static async getDashboardFinancial(req: Request, res: Response, next: NextFunction) {
     try {
-      // Mock data for the financial chart
-      const data = [
-        { date: 'Mon', deposits: 4000, withdrawals: 2400 },
-        { date: 'Tue', deposits: 3000, withdrawals: 1398 },
-        { date: 'Wed', deposits: 2000, withdrawals: 9800 },
-        { date: 'Thu', deposits: 2780, withdrawals: 3908 },
-        { date: 'Fri', deposits: 1890, withdrawals: 4800 },
-        { date: 'Sat', deposits: 2390, withdrawals: 3800 },
-        { date: 'Sun', deposits: 3490, withdrawals: 4300 }
-      ];
+      const range = req.query.range as string || '30d';
+      let days = 30;
+      if (range === '7d') days = 7;
+      if (range === '30d') days = 30;
+      if (range === '3m') days = 90;
+
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      const transactions = await prisma.transaction.findMany({
+        where: {
+          status: 'COMPLETED',
+          createdAt: { gte: startDate },
+          type: { in: ['DEPOSIT', 'WITHDRAWAL'] }
+        },
+        select: { type: true, amount: true, createdAt: true }
+      });
+
+      const grouped: Record<string, { deposits: number; withdrawals: number }> = {};
+      
+      for(let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        grouped[label] = { deposits: 0, withdrawals: 0 };
+      }
+
+      transactions.forEach(t => {
+        const label = t.createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (grouped[label]) {
+          if (t.type === 'DEPOSIT') grouped[label].deposits += t.amount;
+          if (t.type === 'WITHDRAWAL') grouped[label].withdrawals += t.amount;
+        }
+      });
+
+      const data = Object.keys(grouped).map(label => ({
+        label,
+        deposits: grouped[label].deposits,
+        withdrawals: grouped[label].withdrawals
+      }));
+
       res.json(data);
     } catch (error) {
       next(error);
