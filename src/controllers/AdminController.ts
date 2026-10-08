@@ -854,7 +854,7 @@ export class AdminController {
 
   static async endPlayerSession(req: Request, res: Response, next: NextFunction) {
     try {
-      const sessionId = req.params.id;
+      const sessionId = String(req.params.id);
       if (/^[a-f\d]{24}$/i.test(sessionId)) {
         await prisma.session.deleteMany({ where: { id: sessionId } });
       }
