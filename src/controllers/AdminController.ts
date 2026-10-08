@@ -941,7 +941,7 @@ export class AdminController {
 
   static async updateGameStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = String(req.params.id);
       const { status } = req.body;
       let prismaStatus: 'ACTIVE' | 'INACTIVE' | 'BANNED' = 'ACTIVE';
       if (status === 'disabled' || status === 'INACTIVE') prismaStatus = 'INACTIVE';
@@ -958,7 +958,7 @@ export class AdminController {
 
   static async deleteGame(req: Request, res: Response, next: NextFunction) {
     try {
-      const { id } = req.params;
+      const id = String(req.params.id);
       await prisma.game.delete({ where: { id } });
       res.json({ success: true });
     } catch (error) {
