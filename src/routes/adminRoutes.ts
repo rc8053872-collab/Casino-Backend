@@ -42,6 +42,7 @@ router.post('/support/settings', AdminController.updateSupportSettings);
 // Games
 router.get('/games', AdminController.getGames);
 router.post('/games', AdminController.createGame);
+router.get('/games/history', AdminController.getGameHistory);
 router.get('/games/review', AdminController.getGamesForReview);
 router.post('/games/:id/review', AdminController.reviewGame);
 router.patch('/games/:id', AdminController.updateGame);

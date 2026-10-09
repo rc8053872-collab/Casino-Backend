@@ -970,4 +970,37 @@ export class AdminController {
       next(error);
     }
   }
+
+  // --- GAME HISTORY ---
+  static async getGameHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const skip = (page - 1) * limit;
+
+      const histories = await prisma.gameHistory.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          user: { select: { id: true, email: true } },
+          game: { select: { id: true, name: true, provider: true } }
+        }
+      });
+
+      const total = await prisma.gameHistory.count();
+
+      res.json({
+        data: histories,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
