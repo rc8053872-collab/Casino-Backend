@@ -99,7 +99,7 @@ export class WalletService {
           gameHistoryId: gameHistoryId || null,
           gameId: gameId || null,
           description: description || null,
-          metadata: metadata || Prisma.JsonNull,
+          metadata: metadata || null,
         },
       });
 
