@@ -281,7 +281,7 @@ export class GameCloudController {
   // 2. WEBHOOK CALLBACK RECEIVER
   static async callback(req: Request, res: Response) {
     const body = req.body as Record<string, unknown> | undefined;
-    const { player_id } = body ?? {};
+    const player_id = body?.player_id || body?.playerId;
     const playerId = typeof player_id === 'string' ? player_id.trim() : '';
 
     console.log("CALLBACK BODY", {
@@ -313,7 +313,9 @@ export class GameCloudController {
 
       const walletId = user.wallet.id;
 
-      if (action === 'balance') {
+      const actionStr = typeof action === 'string' ? action.toLowerCase() : '';
+
+      if (actionStr === 'balance') {
         return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
       }
 
@@ -353,7 +355,7 @@ export class GameCloudController {
         });
       }
 
-      if (action === 'bet' || action === 'debit') {
+      if (actionStr === 'bet' || actionStr === 'debit') {
         if (Number(user.wallet.balance) < Number(amount)) {
           return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
         }
@@ -368,7 +370,7 @@ export class GameCloudController {
           currency: txCurrency,
         });
 
-      } else if (action === 'win' || action === 'credit') {
+      } else if (actionStr === 'win' || actionStr === 'credit') {
         await GameTransactionService.processProviderTransaction({
           userId: playerId,
           gameId: internalGameId,
@@ -379,7 +381,7 @@ export class GameCloudController {
           currency: txCurrency,
         });
 
-      } else if (action === 'refund') {
+      } else if (actionStr === 'refund' || actionStr === 'rollback') {
         await GameTransactionService.processProviderTransaction({
           userId: playerId,
           gameId: internalGameId,
