@@ -27,6 +27,5 @@ router.post('/gamecloud/play', requireAuth, GameCloudController.launchGame);
 router.post('/v1/callback', GameCloudController.callback); // Matches /api/v1/callback
 
 // Direct test URL you can open in browser!
-router.get('/test-gamecloud/:gameCode', GameCloudController.testLaunch);
 
 export default router;

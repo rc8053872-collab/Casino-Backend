@@ -1,41 +1,30 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
 import prisma from '../prismaClient';
-import { WalletService } from '../services/WalletService';
 import { GameTransactionService } from '../services/games/GameTransactionService';
+import { createHash } from 'node:crypto';
 
-const GATEWAY_URL = process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
-const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
-
-function sanitizeErrorText(value: string | undefined): string | undefined {
-  return value
-    ?.replace(/\b(?:mongodb(?:\+srv)?|postgres(?:ql)?):\/\/[^\s"'<>]+/gi, '[REDACTED_DATABASE_URL]')
-    .replace(/(\b(?:password|secret|token|api[_-]?key|authorization)\b\s*[:=]\s*)[^\s,;]+/gi, '$1[REDACTED]');
+function getPlayerLogId(playerId: string): string {
+  return createHash('sha256').update(playerId).digest('hex').slice(0, 12);
 }
 
-function getSafeErrorDetails(error: unknown) {
-  if (!(error instanceof Error)) {
-    return {
-      errorName: 'UnknownError',
-      errorMessage: 'Non-Error exception',
-      prismaCode: undefined,
-      stackTrace: undefined,
-    };
+function redactProviderMessage(message: string, secrets: string[]): string {
+  let safeMessage = message;
+  for (const secret of secrets) {
+    if (secret.length >= 4) safeMessage = safeMessage.split(secret).join('[REDACTED]');
   }
+  return safeMessage.replace(
+    /(\b(?:password|secret|token|api[_-]?key|authorization)\b\s*[:=]\s*)[^\s,;]+/gi,
+    '$1[REDACTED]'
+  );
+}
 
-  const prismaError = error as Error & { code?: unknown; errorCode?: unknown };
-  const code = typeof prismaError.code === 'string'
-    ? prismaError.code
-    : typeof prismaError.errorCode === 'string'
-      ? prismaError.errorCode
-      : undefined;
-
-  return {
-    errorName: error.name,
-    errorMessage: sanitizeErrorText(error.message),
-    prismaCode: code,
-    stackTrace: sanitizeErrorText(error.stack),
-  };
+export function resolveGameCloudPlayerId(user: {
+  gameCloudPlayerId: string | null;
+  mobile: string | null;
+  id: string;
+}): string {
+  return user.gameCloudPlayerId || user.mobile || user.id;
 }
 
 export class GameCloudController {
@@ -93,7 +82,11 @@ export class GameCloudController {
         return res.status(404).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
       }
 
-      const walletCurrency = user.wallet?.currency || 'INR';
+      if (!user.wallet) {
+        return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
+      }
+
+      const walletCurrency = user.wallet.currency;
 
       if (game.category === 'SLOT') {
         if (!game.supportedCurrencies || !game.supportedCurrencies.includes(walletCurrency)) {
@@ -118,27 +111,22 @@ export class GameCloudController {
 
       // 3. Setup GameCloud request
       const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
-      const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID || 306);
+      const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID);
       const API_TOKEN = process.env.GAMECLOUD_API_TOKEN || '';
-      const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || API_TOKEN;
-      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://orbitplay.com';
+      const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || '';
+      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://maltiplayx.com';
+      const redactProviderError = (value: unknown): string => {
+        const message = typeof value === 'string' ? value : 'Provider returned an unspecified error.';
+        return redactProviderMessage(message, [API_TOKEN, SECRET_KEY]);
+      };
 
-      if (!API_TOKEN) {
-        console.error('GameCloud launch failed: API token not configured.');
-        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_AUTH_FAILED' });
+      if (!Number.isInteger(RESELLER_ID) || RESELLER_ID <= 0 || !API_TOKEN || !SECRET_KEY) {
+        console.error('GameCloud launch failed: reseller ID or credentials are not configured.');
+        return res.status(500).json({ status: 'FAILED', error: 'GAMECLOUD_CONFIGURATION_ERROR' });
       }
 
       try {
-        // GameCloud assigns its own internal numeric player IDs.
-        // We use mobile as a stable numeric identifier. GameCloud will map it to their own internal ID.
-        // We set gcMappingPending so our callback can auto-detect and store GameCloud's internal ID.
-        const gameCloudPlayerId = user.mobile && user.mobile.length >= 10 ? user.mobile : `100${user.id.substring(18)}`;
-
-        // Mark user as pending GameCloud ID mapping
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { gcMappingPending: true }
-        });
+        const gameCloudPlayerId = resolveGameCloudPlayerId(user);
 
         const payload = {
           reseller_id: RESELLER_ID,
@@ -176,7 +164,9 @@ export class GameCloudController {
           });
         }
 
-        const gcError = response.data?.error || response.data?.message || 'Unknown error from GameCloud';
+        const gcError = redactProviderError(
+          response.data?.error || response.data?.message || 'Unknown error from GameCloud'
+        );
         console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: response.data?.status, error: gcError });
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
@@ -197,25 +187,32 @@ export class GameCloudController {
           message: typeof gcError === 'string' ? gcError : JSON.stringify(gcError)
         });
 
-      } catch (axiosError: any) {
+      } catch (axiosError: unknown) {
+        const error = axios.isAxiosError(axiosError) ? axiosError : null;
         // Safe sanitized logging
         const safeLogPayload = {
           reseller_id: RESELLER_ID,
           game_uid: externalGameUid,
           currency_code: walletCurrency
         };
-        console.error(`[GameCloud Launch] Network/API error: ${axiosError.message}`, safeLogPayload);
+        console.error('[GameCloud Launch] Network/API error', {
+          ...safeLogPayload,
+          error: redactProviderError(error?.message || (axiosError instanceof Error ? axiosError.message : 'Unknown error')),
+          providerStatus: error?.response?.status,
+          providerError: redactProviderError(error?.response?.data?.error || error?.response?.data?.message),
+        });
 
-        if (axiosError.code === 'ECONNABORTED') {
+        if (error?.code === 'ECONNABORTED') {
           return res.status(504).json({ status: 'FAILED', error: 'NETWORK_ERROR', message: 'Game provider is temporarily unavailable.' });
         }
 
-        if (axiosError.response) {
-          const respData = axiosError.response.data;
-          const gcError = respData?.error || respData?.message || '';
-
-          console.error(`[GameCloud Launch] HTTP ${axiosError.response.status}: error=${gcError}`);
-          console.error(`[GameCloud Launch] Request Body:`, axiosError.config.data);
+        if (error?.response) {
+          const respData = error.response.data;
+          const rawGcError = respData?.error || respData?.message;
+          const gcError = rawGcError ? redactProviderError(rawGcError) : '';
+          console.error(`[GameCloud Launch] Provider returned HTTP ${error.response.status}`, {
+            error: gcError || undefined,
+          });
 
           if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
             return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'Game is currently unavailable.' });
@@ -225,10 +222,10 @@ export class GameCloudController {
           }
 
           // Preserve the original status code and error from GameCloud
-          return res.status(axiosError.response.status).json({ 
+          return res.status(error.response.status).json({
             status: 'FAILED', 
             error: 'GAMECLOUD_LAUNCH_FAILED',
-            message: gcError || JSON.stringify(respData)
+            message: gcError || `GameCloud returned HTTP ${error.response.status}.`
           });
         }
 
@@ -237,272 +234,235 @@ export class GameCloudController {
 
     } catch (err: any) {
       console.error('[GAME_LAUNCH_ERROR]', {
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
+        errorName: err instanceof Error ? err.name : 'UnknownError',
       });
-      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR', details: err.message });
-    }
-  }
-
-  // 1.5 DIRECT TEST ROUTE (No Frontend Needed)
-  static async testLaunch(req: Request, res: Response) {
-    try {
-      const gameCode = req.params.gameCode || 'e04d1f3e'; // Spribe aviator prefix or exact if they provide
-
-      // Ensure a dummy user exists for testing
-      let user = await prisma.user.findFirst({ where: { username: 'testuser' } });
-      if (!user) {
-        user = await prisma.user.create({
-          data: {
-            username: 'testuser',
-            passwordHash: 'dummy',
-            wallet: { create: { balance: 10000, currency: 'INR' } }
-          }
-        });
-      }
-
-      const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
-        reseller_id: RESELLER_ID,
-        token: 'bfc369fd4090461aa92ca32987be5668',
-        api_token: 'bfc369fd4090461aa92ca32907be5668',
-        player_id: user.id,
-        game_uid: gameCode,
-        mode: 'seamless',
-        currency_code: 'INR',
-        home_url: 'https://maltiplayx.com'
-      }, {
-        headers: {
-          'Origin': 'https://maltiplayx.com',
-          'Referer': 'https://maltiplayx.com/',
-          'Authorization': 'Bearer bfc369fd4090461aa92ca32987be5668',
-          'x-api-token': 'bfc369fd4090461aa92ca32987be5668'
-        }
-      });
-
-      if (response.data.status === 'SUCCESS') {
-        // Redirect directly to the game!
-        return res.redirect(response.data.game_launch_url);
-      }
-      return res.send(`GameCloud Error: ${JSON.stringify(response.data)}`);
-    } catch (err: any) {
-      return res.send(`Error: ${err.message}`);
+      return res.status(500).json({ status: 'FAILED', error: 'INTERNAL_ERROR' });
     }
   }
 
   // 2. WEBHOOK CALLBACK RECEIVER
   static async callback(req: Request, res: Response) {
     const body = req.body as Record<string, unknown> | undefined;
-    const player_id = body?.player_id || body?.playerId;
-    let playerId = typeof player_id === 'string' ? player_id.trim() : '';
-    
-    // Strip the OP_ prefix if it exists (legacy)
-    if (playerId.startsWith('OP_')) {
-      playerId = playerId.substring(3);
-    }
+    const playerValue = body?.player_id ?? body?.playerId;
+    const playerId = typeof playerValue === 'string' ? playerValue.trim() : '';
+    const action = typeof body?.action === 'string' ? body.action.toLowerCase() : '';
+    const providerTransactionId = typeof body?.provider_txn_id === 'string'
+      ? body.provider_txn_id.trim()
+      : '';
+    const callbackEventId = createHash('sha256')
+      .update(`${action}:${providerTransactionId}:${playerId}`)
+      .digest('hex')
+      .slice(0, 12);
+    const idempotencyKey = providerTransactionId
+      ? `gamecloud:${action}:${providerTransactionId}`
+      : '';
+    let resolvedUserId = '';
+    let callbackAmount: number | undefined;
+    const receivedAmount = body?.amount;
+    const safeReceivedAmount = typeof receivedAmount === 'number'
+      ? receivedAmount
+      : typeof receivedAmount === 'string'
+        ? receivedAmount.slice(0, 32)
+        : receivedAmount === undefined ? undefined : '[non-scalar]';
 
-    const action = typeof req.body?.action === 'string' ? req.body.action.toLowerCase() : '';
-
-    console.log('[GC_CALLBACK]', {
-      action,
-      player_id: playerId,
-      amount: req.body?.amount,
-      currency: req.body?.currency,
-      game_code: req.body?.game_code,
-      provider_txn_id: req.body?.provider_txn_id
+    console.info('[GC_CALLBACK] Received', {
+      callbackEventId,
+      action: action || 'missing',
+      playerRef: playerId ? getPlayerLogId(playerId) : undefined,
+      amount: safeReceivedAmount,
+      currency: typeof body?.currency === 'string' ? body.currency.slice(0, 12) : undefined,
+      gameRef: typeof body?.game_code === 'string' ? getPlayerLogId(body.game_code) : undefined,
+      providerTransactionRef: providerTransactionId ? getPlayerLogId(providerTransactionId) : undefined,
+      fields: body ? Object.keys(body).sort() : [],
     });
 
-    if (!playerId) {
+    if (!playerId || playerId.length > 128) {
       return res.status(400).json({ status: 'FAILED', error: 'PLAYER_ID_REQUIRED' });
+    }
+    if (!['balance', 'bet', 'win', 'refund'].includes(action)) {
+      return res.status(400).json({ status: 'FAILED', error: 'INVALID_ACTION' });
     }
 
     try {
-      const { amount, provider_txn_id, game_code, currency } = req.body;
-
-      // === 4-TIER USER LOOKUP ===
-      // Tier 1: By stored GameCloud player ID (after first-contact mapping)
-      let user = await prisma.user.findFirst({
-        where: { gameCloudPlayerId: playerId },
-        include: { wallet: true }
+      const matchingUsers = await prisma.user.findMany({
+        where: {
+          OR: [
+            { gameCloudPlayerId: playerId },
+            { mobile: playerId },
+            ...(/^[a-f\d]{24}$/i.test(playerId) ? [{ id: playerId }] : []),
+          ],
+        },
+        include: { wallet: true },
+        take: 2,
       });
-
-      // Tier 2: By mobile number (we send mobile as player_id to GameCloud)
-      if (!user) {
-        user = await prisma.user.findFirst({
-          where: { mobile: playerId },
-          include: { wallet: true }
+      if (matchingUsers.length > 1) {
+        console.error('[GC_CALLBACK] Player ID resolves to multiple accounts', {
+          callbackEventId,
+          action,
+          playerRef: getPlayerLogId(playerId),
+          error: 'AMBIGUOUS_PLAYER_ID',
         });
+        return res.status(409).json({ status: 'FAILED', error: 'AMBIGUOUS_PLAYER_ID' });
       }
-
-      // Tier 3: By DB id (24-char hex, legacy support)
-      if (!user && playerId.length === 24) {
-        user = await prisma.user.findUnique({
-          where: { id: playerId },
-          include: { wallet: true }
-        });
-      }
-
-      // Tier 4: Auto-detect — GameCloud may send its OWN internal ID on first contact.
-      // Find any user who just launched a game (gcMappingPending=true) and map them.
-      if (!user) {
-        console.log(`[GC_CALLBACK] Unknown player_id "${playerId}" — attempting auto-detect mapping`);
-        const pendingUser = await prisma.user.findFirst({
-          where: { gcMappingPending: true },
-          orderBy: { updatedAt: 'desc' },
-          include: { wallet: true }
-        });
-
-        if (pendingUser) {
-          console.log(`[GC_CALLBACK] Auto-mapped GameCloud ID "${playerId}" to user ${pendingUser.id}`);
-          await prisma.user.update({
-            where: { id: pendingUser.id },
-            data: { gameCloudPlayerId: playerId, gcMappingPending: false }
-          });
-          user = { ...pendingUser, gameCloudPlayerId: playerId, gcMappingPending: false };
-        }
-      }
-
-      // If found via mobile but no gameCloudId stored, save it now
-      if (user && !user.gameCloudPlayerId && user.mobile !== playerId) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { gameCloudPlayerId: playerId, gcMappingPending: false }
-        });
-      }
-      // If found via mobile (playerId === mobile), clear pending flag
-      if (user && user.gcMappingPending) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { gcMappingPending: false }
-        });
-      }
+      const user = matchingUsers[0] || null;
+      resolvedUserId = user?.id || '';
 
       if (!user) {
-        console.error(`[GC_CALLBACK] PLAYER_NOT_FOUND for player_id: ${playerId}`);
-        return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND', player_id: playerId });
+        console.error('[GC_CALLBACK] Player lookup failed', {
+          callbackEventId,
+          action,
+          playerRef: getPlayerLogId(playerId),
+          error: 'PLAYER_NOT_FOUND',
+        });
+        return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
       }
       if (!user.wallet) {
         return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
       }
 
-      const actionStr = action;
+      const currencyValue = body?.currency;
+      const callbackCurrency = typeof currencyValue === 'string' ? currencyValue.trim().toUpperCase() : '';
+      if (callbackCurrency && callbackCurrency !== user.wallet.currency.toUpperCase()) {
+        console.error('[GC_CALLBACK] Currency mismatch', {
+          callbackEventId,
+          action,
+          playerRef: getPlayerLogId(playerId),
+          expectedCurrency: user.wallet.currency,
+          receivedCurrency: callbackCurrency,
+        });
+        return res.status(400).json({ status: 'FAILED', error: 'CURRENCY_MISMATCH' });
+      }
 
-      if (actionStr === 'balance') {
-        console.log(`[GC_CALLBACK] Balance for user ${user.id}: ${user.wallet.balance}`);
+      if (action === 'balance') {
         return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
       }
 
-      // Game lookup - flexible search. game_code may be providerId, slug, gameUid, or external ID.
-      const game = game_code ? await prisma.game.findFirst({
+      if (!providerTransactionId || providerTransactionId.length > 200) {
+        return res.status(400).json({ status: 'FAILED', error: 'PROVIDER_TRANSACTION_ID_REQUIRED' });
+      }
+      if (!callbackCurrency) {
+        return res.status(400).json({ status: 'FAILED', error: 'CURRENCY_REQUIRED' });
+      }
+
+      const amountValue = body?.amount;
+      const amountText = typeof amountValue === 'number' || typeof amountValue === 'string'
+        ? String(amountValue)
+        : '';
+      if (!/^\d+(?:\.\d{1,2})?$/.test(amountText)) {
+        return res.status(400).json({ status: 'FAILED', error: 'INVALID_AMOUNT' });
+      }
+      const amount = Number(amountText);
+      callbackAmount = amount;
+      if (!Number.isFinite(amount) || (action !== 'win' && amount <= 0)) {
+        return res.status(400).json({ status: 'FAILED', error: 'INVALID_AMOUNT' });
+      }
+
+      if (action === 'refund') {
+        return res.status(400).json({ status: 'FAILED', error: 'REFUND_REFERENCE_REQUIRED' });
+      }
+
+      const gameCode = typeof body?.game_code === 'string' ? body.game_code.trim() : '';
+      const game = gameCode ? await prisma.game.findFirst({
         where: {
           OR: [
-            { slug: game_code },
-            { providerId: game_code },
-            { gameUid: game_code }
+            { slug: gameCode },
+            { providerId: gameCode },
+            { gameUid: gameCode },
           ]
-        }
+        },
       }) : null;
 
-      // Don't block bet if game not found — use any valid game as fallback or skip game linking
-      // Game code mismatch should NOT cause FAILED response (would show as "Insufficient Funds")
-      const internalGameId = game?.id || (await prisma.game.findFirst({ select: { id: true } }))?.id || 'unknown';
-
-      console.log(`[GC_CALLBACK] game_code="${game_code}" → internalGameId=${internalGameId} (found=${!!game})`);
-
-      // We need a roundId for the transaction
-      const roundId = provider_txn_id || `rnd_${Date.now()}`;
-      const txCurrency = typeof currency === 'string' ? currency.toUpperCase() : user.wallet.currency.toUpperCase();
-
-      if (actionStr === 'bet' || actionStr === 'debit') {
-        if (Number(user.wallet.balance) < Number(amount)) {
-          return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
-        }
-
-        await GameTransactionService.processProviderTransaction({
-          userId: user.id,
-          gameId: internalGameId,
-          roundId: roundId,
-          transactionId: provider_txn_id || roundId,
-          amount: Number(amount),
-          type: 'BET',
-          currency: txCurrency,
-        });
-
-      } else if (actionStr === 'win' || actionStr === 'credit') {
-        await GameTransactionService.processProviderTransaction({
-          userId: user.id,
-          gameId: internalGameId,
-          roundId: roundId,
-          transactionId: provider_txn_id || roundId,
-          amount: Number(amount),
-          type: 'WIN',
-          currency: txCurrency,
-        });
-
-      } else if (actionStr === 'refund' || actionStr === 'rollback') {
-        await GameTransactionService.processProviderTransaction({
-          userId: user.id,
-          gameId: internalGameId,
-          roundId: roundId,
-          transactionId: provider_txn_id || roundId,
-          amount: Number(amount),
-          type: 'REFUND',
-          currency: txCurrency,
-        });
-
-      } else {
-        return res.status(400).json({ status: 'FAILED', error: 'INVALID_ACTION' });
+      if (!game) {
+        return res.status(400).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
       }
 
-      // Fetch latest balance using actual DB user.id
-      const updatedWallet = await prisma.wallet.findUnique({
-        where: { userId: user.id }
+      const transactionType = action === 'bet' ? 'BET' : 'WIN';
+      const existingTransaction = await prisma.transaction.findUnique({
+        where: { idempotencyKey },
+      });
+      if (existingTransaction) {
+        const isSameRequest =
+          existingTransaction.walletId === user.wallet.id &&
+          existingTransaction.amount === amount &&
+          existingTransaction.currency.toUpperCase() === callbackCurrency &&
+          existingTransaction.type === transactionType;
+        if (!isSameRequest) {
+          return res.status(409).json({ status: 'FAILED', error: 'TRANSACTION_ID_CONFLICT' });
+        }
+        const currentWallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
+        return res.json({ status: 'SUCCESS', balance: Number(currentWallet?.balance ?? 0) });
+      }
+
+      await GameTransactionService.processProviderTransaction({
+        userId: user.id,
+        gameId: game.id,
+        roundId: providerTransactionId,
+        transactionId: idempotencyKey,
+        referenceId: providerTransactionId,
+        amount,
+        type: transactionType,
+        currency: callbackCurrency,
       });
 
-      return res.json({ status: 'SUCCESS', balance: Number(updatedWallet?.balance || 0) });
+      const updatedWallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
+      if (!updatedWallet) {
+        throw new Error('WALLET_NOT_FOUND_AFTER_TRANSACTION');
+      }
+      return res.json({ status: 'SUCCESS', balance: Number(updatedWallet.balance) });
 
     } catch (err: unknown) {
-      // If WalletService throws Duplicate Transaction, handle it as idempotency
       const errorMessage = err instanceof Error ? err.message : '';
-      if (errorMessage.toLowerCase().includes('idempotency') || errorMessage.includes('Unique constraint')) {
-        try {
-          const user2 = await prisma.user.findFirst({
-            where: {
-              OR: [
-                { id: playerId.length === 24 ? playerId : undefined },
-                { mobile: playerId }
-              ].filter(Boolean) as any
-            },
-            include: { wallet: true }
-          });
-          if (!user2) {
-            return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
-          }
-          if (!user2.wallet) {
-            return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
-          }
-          return res.json({ status: 'SUCCESS', balance: Number(user2.wallet.balance) });
-        } catch (lookupError) {
-          console.error('GameCloud duplicate callback lookup failed:', {
-            action: req.body?.action,
-            player_id: playerId,
-            currency: req.body?.currency,
-            ...getSafeErrorDetails(lookupError),
-          });
-          return res.status(500).json({ status: 'FAILED', error: lookupError instanceof Error ? lookupError.message : 'INTERNAL_ERROR', details: getSafeErrorDetails(lookupError) });
-        }
+      if (errorMessage === 'Insufficient available balance') {
+        return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
       }
-
-      if (errorMessage.includes('ORIGINAL_TRANSACTION_NOT_FOUND')) {
-        return res.status(400).json({ status: 'FAILED', error: 'ORIGINAL_TRANSACTION_NOT_FOUND' });
+      if (
+        errorMessage === 'ORIGINAL_TRANSACTION_NOT_FOUND' ||
+        errorMessage === 'REFUND_AMOUNT_EXCEEDS_BET' ||
+        errorMessage === 'REFUND_ALREADY_PROCESSED'
+      ) {
+        return res.status(400).json({ status: 'FAILED', error: errorMessage });
+      }
+      const errorCode = typeof err === 'object' && err !== null && 'code' in err
+        ? err.code
+        : undefined;
+      if (
+        (errorMessage === 'IDEMPOTENCY_CONFLICT' || errorCode === 'P2002') &&
+        idempotencyKey &&
+        resolvedUserId &&
+        callbackAmount !== undefined
+      ) {
+        const [priorTransaction, currentWallet] = await Promise.all([
+          prisma.transaction.findUnique({ where: { idempotencyKey } }),
+          prisma.wallet.findUnique({ where: { userId: resolvedUserId } }),
+        ]);
+        if (priorTransaction && currentWallet) {
+          const isSameRequest =
+            priorTransaction.walletId === currentWallet.id &&
+            priorTransaction.amount === callbackAmount &&
+            priorTransaction.currency.toUpperCase() === String(body?.currency).toUpperCase() &&
+            priorTransaction.type === (action === 'bet' ? 'BET' : 'WIN');
+          if (isSameRequest) {
+            return res.json({ status: 'SUCCESS', balance: Number(currentWallet.balance) });
+          }
+          return res.status(409).json({ status: 'FAILED', error: 'TRANSACTION_ID_CONFLICT' });
+        }
       }
 
       console.error('GameCloud callback failed:', {
-        action: req.body?.action,
-        player_id: playerId,
-        currency: req.body?.currency,
-        ...getSafeErrorDetails(err),
+        callbackEventId,
+        action,
+        playerRef: getPlayerLogId(playerId),
+        currency: typeof body?.currency === 'string' ? body.currency : undefined,
+        errorName: err instanceof Error ? err.name : 'UnknownError',
+        errorCode: typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined,
+        errorMessage: err instanceof Error
+          ? redactProviderMessage(err.message, [
+              process.env.GAMECLOUD_API_TOKEN || '',
+              process.env.GAMECLOUD_SECRET_KEY || '',
+            ])
+          : 'Non-Error exception',
       });
-      return res.status(500).json({ status: 'FAILED', error: errorMessage || 'INTERNAL_ERROR', details: getSafeErrorDetails(err) });
+      return res.status(500).json({ status: 'FAILED', error: 'WALLET_TRANSACTION_FAILED' });
     }
   }
 }

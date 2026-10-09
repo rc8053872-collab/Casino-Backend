@@ -18,7 +18,51 @@ export class GameTransactionService {
     });
 
     if (!user || !user.wallet) throw new Error('User/Wallet not found');
+    if (user.wallet.currency.toUpperCase() !== req.currency.toUpperCase()) {
+      throw new Error('CURRENCY_MISMATCH');
+    }
     const walletId = user.wallet.id;
+
+    if (req.type === 'REFUND') {
+      if (!req.referenceId) throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+
+      const originalBet = await prisma.transaction.findFirst({
+        where: {
+          walletId,
+          type: 'BET',
+          status: 'COMPLETED',
+          referenceId: req.referenceId,
+        },
+      });
+      if (!originalBet || !originalBet.gameHistoryId) {
+        throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+      }
+      if (req.amount > Number(originalBet.amount)) {
+        throw new Error('REFUND_AMOUNT_EXCEEDS_BET');
+      }
+
+      const originalRound = await prisma.gameHistory.findUnique({
+        where: { id: originalBet.gameHistoryId },
+      });
+      if (!originalRound || originalRound.gameId !== req.gameId) {
+        throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+      }
+
+      const walletTx = await WalletService.refund(
+        walletId,
+        req.amount,
+        req.transactionId,
+        req.referenceId,
+        `Refund for game ${req.gameId}`,
+        originalRound.id,
+        req.gameId
+      );
+      await prisma.gameHistory.update({
+        where: { id: originalRound.id },
+        data: { status: RoundStatus.CANCELLED },
+      });
+      return walletTx;
+    }
 
     // We must fetch or create a GameHistory round
     let round = await prisma.gameHistory.findFirst({
@@ -26,9 +70,6 @@ export class GameTransactionService {
     });
 
     if (!round) {
-      if (req.type === 'REFUND') {
-        throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
-      }
       round = await prisma.gameHistory.create({
         data: {
           userId,
@@ -45,7 +86,15 @@ export class GameTransactionService {
     // Now delegate to WalletService using the provider transaction id as idempotency key
     let walletTx;
     if (req.type === 'BET') {
-      walletTx = await WalletService.debitForBet(walletId, req.amount, req.transactionId, round.id, `Bet for game ${req.gameId}`);
+      walletTx = await WalletService.debitForBet(
+        walletId,
+        req.amount,
+        req.transactionId,
+        round.id,
+        `Bet for game ${req.gameId}`,
+        req.gameId,
+        req.referenceId
+      );
       
       // Update round info
       await prisma.gameHistory.update({
@@ -62,13 +111,6 @@ export class GameTransactionService {
         data: { winAmount: { increment: req.amount }, status: RoundStatus.RESOLVED }
       });
 
-    } else if (req.type === 'REFUND') {
-      walletTx = await WalletService.refund(walletId, req.amount, req.transactionId, req.transactionId, `Refund for game ${req.gameId}`);
-      
-      await prisma.gameHistory.update({
-        where: { id: round.id },
-        data: { status: RoundStatus.CANCELLED }
-      });
     }
 
     return walletTx;

@@ -1,4 +1,4 @@
-import { PrismaClient, TxType, TxStatus, Prisma } from '@prisma/client';
+import { TxType, TxStatus } from '@prisma/client';
 import prisma from '../prismaClient';
 
 export class WalletService {
@@ -27,7 +27,6 @@ export class WalletService {
         throw new Error('IDEMPOTENCY_CONFLICT'); 
       }
 
-      // 2. Lock the wallet row to prevent concurrent race conditions
       const wallet = await tx.wallet.findUnique({
         where: { id: walletId }
       });
@@ -36,23 +35,45 @@ export class WalletService {
         throw new Error('Wallet not found');
       }
 
+      if (type === TxType.REFUND) {
+        if (!referenceId) throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+        const originalBet = await tx.transaction.findFirst({
+          where: {
+            walletId,
+            type: TxType.BET,
+            status: TxStatus.COMPLETED,
+            referenceId,
+          },
+        });
+        if (!originalBet) throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
+        if (amount > Number(originalBet.amount)) {
+          throw new Error('REFUND_AMOUNT_EXCEEDS_BET');
+        }
+        const priorRefund = await tx.transaction.findFirst({
+          where: {
+            walletId,
+            type: TxType.REFUND,
+            status: TxStatus.COMPLETED,
+            referenceId,
+          },
+        });
+        if (priorRefund) throw new Error('REFUND_ALREADY_PROCESSED');
+      }
+
       const balanceBefore = Number(wallet.balance);
       let balanceAfter = balanceBefore;
 
       // 3. Update wallet atomically
       let updateData: any = {};
       if (type === TxType.BET || type === TxType.WITHDRAWAL) {
-        if (balanceBefore < amount) {
-          throw new Error('Insufficient available balance');
-        }
         updateData.balance = { decrement: amount };
-        balanceAfter = balanceBefore - amount;
+        balanceAfter = Math.round((balanceBefore - amount) * 100) / 100;
         
         if (type === TxType.BET) updateData.totalLost = { increment: amount }; // Note: bet is treated as spent/lost until won
         if (type === TxType.WITHDRAWAL) updateData.totalWithdrawn = { increment: amount };
       } else if (type === TxType.WIN || type === TxType.DEPOSIT || type === TxType.REFUND || type === TxType.BONUS) {
         updateData.balance = { increment: amount };
-        balanceAfter = balanceBefore + amount;
+        balanceAfter = Math.round((balanceBefore + amount) * 100) / 100;
         
         if (type === TxType.WIN) updateData.totalWon = { increment: amount };
         if (type === TxType.DEPOSIT) updateData.totalDeposited = { increment: amount };
@@ -73,10 +94,22 @@ export class WalletService {
 
       let updatedWallet = wallet;
       if (Object.keys(updateData).length > 0) {
-        updatedWallet = await tx.wallet.update({
-          where: { id: walletId },
-          data: updateData,
-        });
+        if (type === TxType.BET || type === TxType.WITHDRAWAL) {
+          const debit = await tx.wallet.updateMany({
+            where: { id: walletId, balance: { gte: amount } },
+            data: updateData,
+          });
+          if (debit.count !== 1) {
+            throw new Error('Insufficient available balance');
+          }
+          updatedWallet = await tx.wallet.findUnique({ where: { id: walletId } });
+          if (!updatedWallet) throw new Error('Wallet not found');
+        } else {
+          updatedWallet = await tx.wallet.update({
+            where: { id: walletId },
+            data: updateData,
+          });
+        }
       }
 
       // Allow operation to do custom things (like lockedBalance updates)
@@ -117,9 +150,9 @@ export class WalletService {
     return this.executeTransaction(walletId, amount, TxType.WITHDRAWAL, idempotencyKey, async () => {}, description, undefined, referenceId);
   }
 
-  static async debitForBet(walletId: string, amount: number, idempotencyKey: string, gameHistoryId: string, description?: string, gameId?: string) {
+  static async debitForBet(walletId: string, amount: number, idempotencyKey: string, gameHistoryId: string, description?: string, gameId?: string, referenceId?: string) {
     if (amount <= 0) throw new Error('Amount must be positive');
-    return this.executeTransaction(walletId, amount, TxType.BET, idempotencyKey, async () => {}, description, undefined, undefined, gameHistoryId, gameId);
+    return this.executeTransaction(walletId, amount, TxType.BET, idempotencyKey, async () => {}, description, undefined, referenceId, gameHistoryId, gameId);
   }
 
   static async creditWin(walletId: string, amount: number, idempotencyKey: string, gameHistoryId: string, description?: string, gameId?: string) {

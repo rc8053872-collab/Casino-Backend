@@ -17,6 +17,7 @@ export interface ProcessTransactionRequest {
   gameId: string;
   roundId: string;
   transactionId: string; // Provider's unique tx id
+  referenceId?: string; // Original provider transaction for a refund
   amount: number;
   type: 'BET' | 'WIN' | 'REFUND';
   currency: string;
