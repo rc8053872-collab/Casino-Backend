@@ -44,8 +44,8 @@ export class PaymentController {
         return res.status(401).json({ error: 'Please log in to request a deposit.' });
       }
 
-      if (!Number.isInteger(amount) || amount < 100 || amount > 10000) {
-        return res.status(400).json({ error: 'Enter a whole amount from ₹100 to ₹10,000.' });
+      if (!Number.isInteger(amount) || amount < 1 || amount > 10000) {
+        return res.status(400).json({ error: 'Enter a whole amount from ₹1 to ₹10,000.' });
       }
 
       if (typeof utrNumber !== 'string' || !/^[a-z\d]{6,22}$/i.test(utrNumber.trim())) {
