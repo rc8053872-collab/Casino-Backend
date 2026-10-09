@@ -374,7 +374,7 @@ export class GameCloudController {
         }
 
         await GameTransactionService.processProviderTransaction({
-          userId: playerId,
+          userId: user.id,
           gameId: internalGameId,
           roundId: roundId,
           transactionId: provider_txn_id || roundId,
@@ -385,7 +385,7 @@ export class GameCloudController {
 
       } else if (actionStr === 'win' || actionStr === 'credit') {
         await GameTransactionService.processProviderTransaction({
-          userId: playerId,
+          userId: user.id,
           gameId: internalGameId,
           roundId: roundId,
           transactionId: provider_txn_id || roundId,
@@ -396,7 +396,7 @@ export class GameCloudController {
 
       } else if (actionStr === 'refund' || actionStr === 'rollback') {
         await GameTransactionService.processProviderTransaction({
-          userId: playerId,
+          userId: user.id,
           gameId: internalGameId,
           roundId: roundId,
           transactionId: provider_txn_id || roundId,
@@ -409,30 +409,34 @@ export class GameCloudController {
         return res.status(400).json({ status: 'FAILED', error: 'INVALID_ACTION' });
       }
 
-      // Fetch latest balance
-      const updatedUser = await prisma.user.findUnique({
-        where: { id: playerId },
-        include: { wallet: true }
+      // Fetch latest balance using actual DB user.id
+      const updatedWallet = await prisma.wallet.findUnique({
+        where: { userId: user.id }
       });
 
-      return res.json({ status: 'SUCCESS', balance: Number(updatedUser?.wallet?.balance || 0) });
+      return res.json({ status: 'SUCCESS', balance: Number(updatedWallet?.balance || 0) });
 
     } catch (err: unknown) {
       // If WalletService throws Duplicate Transaction, handle it as idempotency
       const errorMessage = err instanceof Error ? err.message : '';
       if (errorMessage.toLowerCase().includes('idempotency') || errorMessage.includes('Unique constraint')) {
         try {
-          const user = await prisma.user.findUnique({
-            where: { id: playerId },
+          const user2 = await prisma.user.findFirst({
+            where: {
+              OR: [
+                { id: playerId.length === 24 ? playerId : undefined },
+                { mobile: playerId }
+              ].filter(Boolean) as any
+            },
             include: { wallet: true }
           });
-          if (!user) {
+          if (!user2) {
             return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
           }
-          if (!user.wallet) {
+          if (!user2.wallet) {
             return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
           }
-          return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
+          return res.json({ status: 'SUCCESS', balance: Number(user2.wallet.balance) });
         } catch (lookupError) {
           console.error('GameCloud duplicate callback lookup failed:', {
             action: req.body?.action,
