@@ -131,7 +131,7 @@ export class GameCloudController {
       try {
         const payload = {
           reseller_id: RESELLER_ID,
-          player_id: player_id,
+          player_id: `OP_${player_id}`,
           game_uid: externalGameUid,
           mode: 'seamless',
           currency_code: walletCurrency,
@@ -282,7 +282,12 @@ export class GameCloudController {
   static async callback(req: Request, res: Response) {
     const body = req.body as Record<string, unknown> | undefined;
     const player_id = body?.player_id || body?.playerId;
-    const playerId = typeof player_id === 'string' ? player_id.trim() : '';
+    let playerId = typeof player_id === 'string' ? player_id.trim() : '';
+    
+    // Strip the OP_ prefix if it exists
+    if (playerId.startsWith('OP_')) {
+      playerId = playerId.substring(3);
+    }
 
     console.log("CALLBACK BODY", {
       action: req.body?.action,
