@@ -56,6 +56,8 @@
     referralCode      ReferralCode?
     referredByCode    String?
     referralBonusAwardedAt DateTime?
+    gameCloudPlayerId String?  // GameCloud's internal player ID (auto-mapped on first contact)
+    gcMappingPending  Boolean? // True while waiting for GameCloud first balance call
     createdAt    DateTime  @default(now())
     updatedAt    DateTime  @updatedAt
   }

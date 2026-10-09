@@ -129,8 +129,16 @@ export class GameCloudController {
       }
 
       try {
-        // GameCloud has a bug with Hex strings and assigns internal IDs. Use mobile number (numeric) instead.
+        // GameCloud assigns its own internal numeric player IDs.
+        // We use mobile as a stable numeric identifier. GameCloud will map it to their own internal ID.
+        // We set gcMappingPending so our callback can auto-detect and store GameCloud's internal ID.
         const gameCloudPlayerId = user.mobile && user.mobile.length >= 10 ? user.mobile : `100${user.id.substring(18)}`;
+
+        // Mark user as pending GameCloud ID mapping
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { gcMappingPending: true }
+        });
 
         const payload = {
           reseller_id: RESELLER_ID,
@@ -287,16 +295,20 @@ export class GameCloudController {
     const player_id = body?.player_id || body?.playerId;
     let playerId = typeof player_id === 'string' ? player_id.trim() : '';
     
-    // Strip the OP_ prefix if it exists
+    // Strip the OP_ prefix if it exists (legacy)
     if (playerId.startsWith('OP_')) {
       playerId = playerId.substring(3);
     }
 
-    console.log("CALLBACK BODY", {
-      action: req.body?.action,
-      player_id: req.body?.player_id,
-      playerId: req.body?.playerId,
-      currency: req.body?.currency
+    const action = typeof req.body?.action === 'string' ? req.body.action.toLowerCase() : '';
+
+    console.log('[GC_CALLBACK]', {
+      action,
+      player_id: playerId,
+      amount: req.body?.amount,
+      currency: req.body?.currency,
+      game_code: req.body?.game_code,
+      provider_txn_id: req.body?.provider_txn_id
     });
 
     if (!playerId) {
@@ -304,31 +316,78 @@ export class GameCloudController {
     }
 
     try {
-      const { action, amount, provider_txn_id, game_code, currency } = req.body;
+      const { amount, provider_txn_id, game_code, currency } = req.body;
 
-      // Ensure user exists (Search by ID or Mobile since we now use mobile for GameCloud)
-      const user = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { id: playerId.length === 24 ? playerId : undefined },
-            { mobile: playerId }
-          ].filter(Boolean) as any
-        },
+      // === 4-TIER USER LOOKUP ===
+      // Tier 1: By stored GameCloud player ID (after first-contact mapping)
+      let user = await prisma.user.findFirst({
+        where: { gameCloudPlayerId: playerId },
         include: { wallet: true }
       });
 
+      // Tier 2: By mobile number (we send mobile as player_id to GameCloud)
       if (!user) {
-        return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND' });
+        user = await prisma.user.findFirst({
+          where: { mobile: playerId },
+          include: { wallet: true }
+        });
+      }
+
+      // Tier 3: By DB id (24-char hex, legacy support)
+      if (!user && playerId.length === 24) {
+        user = await prisma.user.findUnique({
+          where: { id: playerId },
+          include: { wallet: true }
+        });
+      }
+
+      // Tier 4: Auto-detect — GameCloud may send its OWN internal ID on first contact.
+      // Find any user who just launched a game (gcMappingPending=true) and map them.
+      if (!user) {
+        console.log(`[GC_CALLBACK] Unknown player_id "${playerId}" — attempting auto-detect mapping`);
+        const pendingUser = await prisma.user.findFirst({
+          where: { gcMappingPending: true },
+          orderBy: { updatedAt: 'desc' },
+          include: { wallet: true }
+        });
+
+        if (pendingUser) {
+          console.log(`[GC_CALLBACK] Auto-mapped GameCloud ID "${playerId}" to user ${pendingUser.id}`);
+          await prisma.user.update({
+            where: { id: pendingUser.id },
+            data: { gameCloudPlayerId: playerId, gcMappingPending: false }
+          });
+          user = { ...pendingUser, gameCloudPlayerId: playerId, gcMappingPending: false };
+        }
+      }
+
+      // If found via mobile but no gameCloudId stored, save it now
+      if (user && !user.gameCloudPlayerId && user.mobile !== playerId) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { gameCloudPlayerId: playerId, gcMappingPending: false }
+        });
+      }
+      // If found via mobile (playerId === mobile), clear pending flag
+      if (user && user.gcMappingPending) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { gcMappingPending: false }
+        });
+      }
+
+      if (!user) {
+        console.error(`[GC_CALLBACK] PLAYER_NOT_FOUND for player_id: ${playerId}`);
+        return res.status(404).json({ status: 'FAILED', error: 'PLAYER_NOT_FOUND', player_id: playerId });
       }
       if (!user.wallet) {
         return res.status(404).json({ status: 'FAILED', error: 'WALLET_NOT_FOUND' });
       }
 
-      const walletId = user.wallet.id;
-
-      const actionStr = typeof action === 'string' ? action.toLowerCase() : '';
+      const actionStr = action;
 
       if (actionStr === 'balance') {
+        console.log(`[GC_CALLBACK] Balance for user ${user.id}: ${user.wallet.balance}`);
         return res.json({ status: 'SUCCESS', balance: Number(user.wallet.balance) });
       }
 
