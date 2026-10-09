@@ -129,9 +129,12 @@ export class GameCloudController {
       }
 
       try {
+        // GameCloud has a bug with Hex strings and assigns internal IDs. Use mobile number (numeric) instead.
+        const gameCloudPlayerId = user.mobile && user.mobile.length >= 10 ? user.mobile : `100${user.id.substring(18)}`;
+
         const payload = {
           reseller_id: RESELLER_ID,
-          player_id: `OP_${player_id}`,
+          player_id: gameCloudPlayerId,
           game_uid: externalGameUid,
           mode: 'seamless',
           currency_code: walletCurrency,
@@ -303,9 +306,14 @@ export class GameCloudController {
     try {
       const { action, amount, provider_txn_id, game_code, currency } = req.body;
 
-      // Ensure user exists
-      const user = await prisma.user.findUnique({
-        where: { id: playerId },
+      // Ensure user exists (Search by ID or Mobile since we now use mobile for GameCloud)
+      const user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: playerId.length === 24 ? playerId : undefined },
+            { mobile: playerId }
+          ].filter(Boolean) as any
+        },
         include: { wallet: true }
       });
 
