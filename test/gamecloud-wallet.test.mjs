@@ -54,6 +54,13 @@ function applyMutation(value, mutation = {}) {
 
 function createTransactionClient(draft) {
   return {
+    user: {
+      async findUnique({ where }) {
+        return where.id === user.id
+          ? { ...user, wallet: { ...draft.wallet } }
+          : null;
+      },
+    },
     wallet: {
       async findUnique({ where }) {
         if (where.id && where.id !== draft.wallet.id) return null;
@@ -61,7 +68,11 @@ function createTransactionClient(draft) {
         return { ...draft.wallet };
       },
       async updateMany({ where, data }) {
-        if (where.id !== draft.wallet.id || draft.wallet.balance < where.balance.gte) {
+        if (
+          where.id !== draft.wallet.id ||
+          (where.balance?.gte !== undefined && draft.wallet.balance < where.balance.gte) ||
+          (where.currency && where.currency !== draft.wallet.currency)
+        ) {
           return { count: 0 };
         }
         for (const [key, mutation] of Object.entries(data)) {
@@ -100,6 +111,37 @@ function createTransactionClient(draft) {
         return created;
       },
     },
+    gameHistory: {
+      async findFirst({ where }) {
+        if (draft.failGameHistoryLookup) throw new Error('test database failure');
+        return draft.gameHistories.find((history) =>
+          history.roundId === where.roundId &&
+          history.gameId === where.gameId &&
+          history.userId === where.userId
+        ) || null;
+      },
+      async findUnique({ where }) {
+        return draft.gameHistories.find((history) => history.id === where.id) || null;
+      },
+      async create({ data }) {
+        const created = { ...data, id: `history-${draft.gameHistories.length + 1}` };
+        draft.gameHistories.push(created);
+        return created;
+      },
+      async update({ where, data }) {
+        if (draft.failGameHistoryUpdate) throw new Error('test database failure');
+        const history = draft.gameHistories.find((item) => item.id === where.id);
+        if (!history) throw new Error('Game history not found');
+        if (data.betAmount?.increment !== undefined) {
+          history.betAmount += data.betAmount.increment;
+        }
+        if (data.winAmount?.increment !== undefined) {
+          history.winAmount += data.winAmount.increment;
+        }
+        if (data.status) history.status = data.status;
+        return history;
+      },
+    },
   };
 }
 
@@ -127,32 +169,6 @@ function installPrismaMocks() {
   replaceMethod(prisma.game, 'findUnique', async ({ where }) =>
     where.slug === game.slug ? game : null
   );
-  replaceMethod(prisma.gameHistory, 'findFirst', async ({ where }) =>
-    state.failGameHistoryLookup ? Promise.reject(new Error('test database failure')) :
-    state.gameHistories.find((history) =>
-      history.roundId === where.roundId && history.gameId === where.gameId
-    ) || null
-  );
-  replaceMethod(prisma.gameHistory, 'findUnique', async ({ where }) =>
-    state.gameHistories.find((history) => history.id === where.id) || null
-  );
-  replaceMethod(prisma.gameHistory, 'create', async ({ data }) => {
-    const created = { ...data, id: `history-${state.gameHistories.length + 1}` };
-    state.gameHistories.push(created);
-    return created;
-  });
-  replaceMethod(prisma.gameHistory, 'update', async ({ where, data }) => {
-    const history = state.gameHistories.find((item) => item.id === where.id);
-    if (!history) throw new Error('Game history not found');
-    if (data.betAmount?.increment !== undefined) {
-      history.betAmount += data.betAmount.increment;
-    }
-    if (data.winAmount?.increment !== undefined) {
-      history.winAmount += data.winAmount.increment;
-    }
-    if (data.status) history.status = data.status;
-    return history;
-  });
   replaceMethod(prisma.transaction, 'findUnique', async ({ where }) =>
     state.transactions.get(where.idempotencyKey) || null
   );
@@ -263,6 +279,18 @@ test('an ₹11 bet is rejected without changing the wallet or ledger', async () 
   assert.equal(state.transactions.size, 0);
 });
 
+test('a post-debit history failure rolls back the wallet debit and ledger entry', async () => {
+  state.failGameHistoryUpdate = true;
+  const response = await callback({
+    action: 'bet', player_id: user.mobile, provider_txn_id: 'history-update-error',
+    game_code: game.gameUid, currency: 'INR', amount: 1,
+  });
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.status, 'FAILED');
+  assert.equal(state.wallet.balance, 10);
+  assert.equal(state.transactions.size, 0);
+});
+
 test('concurrent bets cannot spend the same available balance twice', async () => {
   const responses = await Promise.all(['concurrent-a', 'concurrent-b'].map((provider_txn_id) =>
     callback({
@@ -299,6 +327,22 @@ test('duplicate bet callback does not debit twice', async () => {
   const duplicate = await callback(payload);
   assert.equal(first.body.balance, 9);
   assert.equal(duplicate.body.balance, 9);
+  assert.equal(state.transactions.size, 1);
+});
+
+test('reusing a provider transaction ID with a different amount is rejected', async () => {
+  const first = await callback({
+    action: 'bet', player_id: user.mobile, provider_txn_id: 'bet-conflicting-retry',
+    game_code: game.gameUid, currency: 'INR', amount: 1,
+  });
+  const conflictingRetry = await callback({
+    action: 'bet', player_id: user.mobile, provider_txn_id: 'bet-conflicting-retry',
+    game_code: game.gameUid, currency: 'INR', amount: 2,
+  });
+  assert.equal(first.statusCode, 200);
+  assert.equal(conflictingRetry.statusCode, 409);
+  assert.equal(conflictingRetry.body.error, 'TRANSACTION_ID_CONFLICT');
+  assert.equal(state.wallet.balance, 9);
   assert.equal(state.transactions.size, 1);
 });
 
@@ -427,10 +471,11 @@ test('provider refund processing uses the original bet and its wallet only', asy
     currency: 'INR',
   };
   await GameTransactionService.processProviderTransaction(refundRequest);
-  await assert.rejects(
-    GameTransactionService.processProviderTransaction(refundRequest),
-    /IDEMPOTENCY_CONFLICT/
-  );
+  await GameTransactionService.processProviderTransaction(refundRequest);
+  await assert.rejects(GameTransactionService.processProviderTransaction({
+    ...refundRequest,
+    transactionId: 'gamecloud:refund:refund-retry-with-new-id',
+  }), /REFUND_ALREADY_PROCESSED/);
 
   assert.equal(state.wallet.balance, 10);
   assert.equal(state.transactions.size, 2);

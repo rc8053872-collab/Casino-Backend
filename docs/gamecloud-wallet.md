@@ -52,6 +52,8 @@ Example successful ₹1 bet request and response:
 
 These examples describe the code's current contract; verify field names, response shape, signature/authentication requirements, and HTTP status expectations against the GameCloud Operator documentation or a redacted production callback trace before changing the provider profile. Do not send real-money test callbacks to production.
 
+Bet/win wallet updates, transaction-ledger writes, and round-history updates run inside the same database transaction. Bet debits use a conditional balance update, and provider transaction IDs are idempotency keys; a database failure cannot leave a partial debit or credit.
+
 ## Refund handling
 
 Refunds fail closed until GameCloud's documented field identifying the original successful bet is confirmed. A refund must identify the original completed bet transaction, belong to the same wallet and game, not exceed the original bet, and not have been refunded already. Do not configure refund callbacks as successful until the provider's exact original-transaction reference field and retry/idempotency semantics have been verified.

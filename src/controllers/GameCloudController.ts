@@ -257,6 +257,7 @@ export class GameCloudController {
       ? `gamecloud:${action}:${providerTransactionId}`
       : '';
     let resolvedUserId = '';
+    let resolvedGameId = '';
     let callbackAmount: number | undefined;
     const receivedAmount = body?.amount;
     const safeReceivedAmount = typeof receivedAmount === 'number'
@@ -375,6 +376,7 @@ export class GameCloudController {
       if (!game) {
         return res.status(400).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
       }
+      resolvedGameId = game.id;
 
       const transactionType = action === 'bet' ? 'BET' : 'WIN';
       const existingTransaction = await prisma.transaction.findUnique({
@@ -383,9 +385,11 @@ export class GameCloudController {
       if (existingTransaction) {
         const isSameRequest =
           existingTransaction.walletId === user.wallet.id &&
+          existingTransaction.gameId === game.id &&
           existingTransaction.amount === amount &&
           existingTransaction.currency.toUpperCase() === callbackCurrency &&
-          existingTransaction.type === transactionType;
+          existingTransaction.type === transactionType &&
+          existingTransaction.referenceId === providerTransactionId;
         if (!isSameRequest) {
           return res.status(409).json({ status: 'FAILED', error: 'TRANSACTION_ID_CONFLICT' });
         }
@@ -438,9 +442,11 @@ export class GameCloudController {
         if (priorTransaction && currentWallet) {
           const isSameRequest =
             priorTransaction.walletId === currentWallet.id &&
+            priorTransaction.gameId === resolvedGameId &&
             priorTransaction.amount === callbackAmount &&
             priorTransaction.currency.toUpperCase() === String(body?.currency).toUpperCase() &&
-            priorTransaction.type === (action === 'bet' ? 'BET' : 'WIN');
+            priorTransaction.type === (action === 'bet' ? 'BET' : 'WIN') &&
+            priorTransaction.referenceId === providerTransactionId;
           if (isSameRequest) {
             return res.json({ status: 'SUCCESS', balance: Number(currentWallet.balance) });
           }
