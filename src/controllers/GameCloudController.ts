@@ -353,7 +353,7 @@ export class GameCloudController {
         });
       }
 
-      if (action === 'bet') {
+      if (action === 'bet' || action === 'debit') {
         if (Number(user.wallet.balance) < Number(amount)) {
           return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
         }
@@ -368,7 +368,7 @@ export class GameCloudController {
           currency: txCurrency,
         });
 
-      } else if (action === 'win') {
+      } else if (action === 'win' || action === 'credit') {
         await GameTransactionService.processProviderTransaction({
           userId: playerId,
           gameId: internalGameId,
