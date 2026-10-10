@@ -24,16 +24,10 @@ export function resolveGameCloudPlayerId(user: {
   mobile: string | null;
   id: string;
 }): string {
-  // If an explicit GameCloud mapping exists, use it.
   if (user.gameCloudPlayerId) {
     return user.gameCloudPlayerId;
   }
-  // DO NOT use user.mobile. GameCloud's system maps mobile numbers to their
-  // legacy internal player IDs (e.g., 63756). Since MALTIPLAYX migrated to
-  // MongoDB ObjectIds, we don't have these legacy integer IDs in our database,
-  // resulting in PLAYER_NOT_FOUND in bet/win callbacks.
-  // Always use the MongoDB ObjectId (24-char hex) as the GameCloud player ID.
-  return user.id;
+  return user.id; // Fallback, though launchGame will now guarantee gameCloudPlayerId exists
 }
 
 export class GameCloudController {
@@ -135,7 +129,17 @@ export class GameCloudController {
       }
 
       try {
-        const gameCloudPlayerId = resolveGameCloudPlayerId(user);
+        // GameCloud legacy systems silently scrub and truncate player IDs to 32-bit integers.
+        // We MUST send a clean, unique integer ID, or GameCloud will mangle ObjectIds (e.g., 6ac8817f -> 68817)
+        // and we will lose the identity mapping for callbacks.
+        let gameCloudPlayerId = user.gameCloudPlayerId;
+        if (!gameCloudPlayerId) {
+          gameCloudPlayerId = String(Math.floor(100000000 + Math.random() * 900000000));
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { gameCloudPlayerId }
+          });
+        }
 
         const payload = {
           reseller_id: RESELLER_ID,
