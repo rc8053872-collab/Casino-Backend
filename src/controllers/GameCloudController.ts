@@ -386,11 +386,20 @@ export class GameCloudController {
           existingTransaction.type === transactionType &&
           existingTransaction.referenceId === providerTransactionId;
         if (!isSameRequest) {
+          console.error('[GC_CALLBACK] Conflict', { callbackEventId, error: 'TRANSACTION_ID_CONFLICT' });
           return res.status(409).json({ status: 'FAILED', error: 'TRANSACTION_ID_CONFLICT' });
         }
         const currentWallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
+        console.info('[GC_CALLBACK] Idempotent Success', { callbackEventId, balance: currentWallet?.balance });
         return res.json({ status: 'SUCCESS', balance: Number(currentWallet?.balance ?? 0) });
       }
+
+      console.info('[GC_CALLBACK] Processing Transaction', {
+        callbackEventId,
+        walletBalance: user.wallet.balance,
+        betAmount: amount,
+        action,
+      });
 
       await GameTransactionService.processProviderTransaction({
         userId: user.id,
@@ -407,10 +416,13 @@ export class GameCloudController {
       if (!updatedWallet) {
         throw new Error('WALLET_NOT_FOUND_AFTER_TRANSACTION');
       }
+      console.info('[GC_CALLBACK] Success', { callbackEventId, newBalance: updatedWallet.balance });
       return res.json({ status: 'SUCCESS', balance: Number(updatedWallet.balance) });
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '';
+      console.error('[GC_CALLBACK] Exception in transaction', { callbackEventId, errorMessage });
+
       if (errorMessage === 'Insufficient available balance') {
         return res.status(400).json({ status: 'FAILED', error: 'INSUFFICIENT_FUNDS' });
       }
@@ -443,8 +455,10 @@ export class GameCloudController {
             priorTransaction.type === (action === 'bet' ? 'BET' : 'WIN') &&
             priorTransaction.referenceId === providerTransactionId;
           if (isSameRequest) {
+            console.info('[GC_CALLBACK] Idempotent Success on retry', { callbackEventId });
             return res.json({ status: 'SUCCESS', balance: Number(currentWallet.balance) });
           }
+          console.error('[GC_CALLBACK] Conflict on retry', { callbackEventId });
           return res.status(409).json({ status: 'FAILED', error: 'TRANSACTION_ID_CONFLICT' });
         }
       }
@@ -467,3 +481,4 @@ export class GameCloudController {
     }
   }
 }
+
