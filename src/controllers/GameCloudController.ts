@@ -246,8 +246,9 @@ export class GameCloudController {
     const playerValue = body?.player_id ?? body?.playerId;
     const playerId = typeof playerValue === 'string' ? playerValue.trim() : '';
     const action = typeof body?.action === 'string' ? body.action.toLowerCase() : '';
-    const providerTransactionId = typeof body?.provider_txn_id === 'string'
-      ? body.provider_txn_id.trim()
+    const providerTxnVal = body?.provider_txn_id ?? body?.providerTxnId;
+    const providerTransactionId = (typeof providerTxnVal === 'string' || typeof providerTxnVal === 'number')
+      ? String(providerTxnVal).trim()
       : '';
     const callbackEventId = createHash('sha256')
       .update(`${action}:${providerTransactionId}:${playerId}`)
@@ -346,13 +347,7 @@ export class GameCloudController {
       }
 
       const amountValue = body?.amount;
-      const amountText = typeof amountValue === 'number' || typeof amountValue === 'string'
-        ? String(amountValue)
-        : '';
-      if (!/^\d+(?:\.\d{1,2})?$/.test(amountText)) {
-        return res.status(400).json({ status: 'FAILED', error: 'INVALID_AMOUNT' });
-      }
-      const amount = Number(amountText);
+      const amount = Number(amountValue);
       callbackAmount = amount;
       if (!Number.isFinite(amount) || (action !== 'win' && amount <= 0)) {
         return res.status(400).json({ status: 'FAILED', error: 'INVALID_AMOUNT' });
