@@ -24,7 +24,16 @@ export function resolveGameCloudPlayerId(user: {
   mobile: string | null;
   id: string;
 }): string {
-  return user.gameCloudPlayerId || user.mobile || user.id;
+  // If an explicit GameCloud mapping exists, use it.
+  if (user.gameCloudPlayerId) {
+    return user.gameCloudPlayerId;
+  }
+  // DO NOT use user.mobile. GameCloud's system maps mobile numbers to their
+  // legacy internal player IDs (e.g., 63756). Since MALTIPLAYX migrated to
+  // MongoDB ObjectIds, we don't have these legacy integer IDs in our database,
+  // resulting in PLAYER_NOT_FOUND in bet/win callbacks.
+  // Always use the MongoDB ObjectId (24-char hex) as the GameCloud player ID.
+  return user.id;
 }
 
 export class GameCloudController {
