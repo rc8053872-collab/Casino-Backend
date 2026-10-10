@@ -244,7 +244,7 @@ export class GameCloudController {
   static async callback(req: Request, res: Response) {
     const body = req.body as Record<string, unknown> | undefined;
     const playerValue = body?.player_id ?? body?.playerId;
-    const playerId = typeof playerValue === 'string' ? playerValue.trim() : '';
+    const playerId = (typeof playerValue === 'string' || typeof playerValue === 'number') ? String(playerValue).trim() : '';
     const action = typeof body?.action === 'string' ? body.action.toLowerCase() : '';
     const providerTxnVal = body?.provider_txn_id ?? body?.providerTxnId;
     const providerTransactionId = (typeof providerTxnVal === 'string' || typeof providerTxnVal === 'number')
@@ -357,7 +357,8 @@ export class GameCloudController {
         return res.status(400).json({ status: 'FAILED', error: 'REFUND_REFERENCE_REQUIRED' });
       }
 
-      const gameCode = typeof body?.game_code === 'string' ? body.game_code.trim() : '';
+      const gameCodeValue = body?.game_code;
+      const gameCode = (typeof gameCodeValue === 'string' || typeof gameCodeValue === 'number') ? String(gameCodeValue).trim() : '';
       const game = gameCode ? await prisma.game.findFirst({
         where: {
           OR: [
