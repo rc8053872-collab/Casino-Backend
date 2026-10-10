@@ -133,8 +133,17 @@ export class GameCloudController {
         // We MUST send a clean, unique integer ID, or GameCloud will mangle ObjectIds (e.g., 6ac8817f -> 68817)
         // and we will lose the identity mapping for callbacks.
         let gameCloudPlayerId = user.gameCloudPlayerId;
-        if (!gameCloudPlayerId) {
-          gameCloudPlayerId = String(Math.floor(100000000 + Math.random() * 900000000));
+        if (!gameCloudPlayerId || gameCloudPlayerId.length !== 5) {
+          // GameCloud's backend severely truncates player IDs down to just 5 characters during the bet callback.
+          // We MUST generate an exactly 5-digit ID (10000-99999) to survive their roundtrip without collisions.
+          let isUnique = false;
+          let attempts = 0;
+          while (!isUnique && attempts < 10) {
+            gameCloudPlayerId = String(Math.floor(10000 + Math.random() * 90000));
+            const existing = await prisma.user.findFirst({ where: { gameCloudPlayerId } });
+            if (!existing) isUnique = true;
+            attempts++;
+          }
           await prisma.user.update({
             where: { id: user.id },
             data: { gameCloudPlayerId }
