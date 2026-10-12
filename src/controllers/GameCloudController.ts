@@ -50,6 +50,10 @@ export function createGameCloudLaunchPayload(input: {
   };
 }
 
+export function getGameCloudHomeUrl(configuredHomeUrl?: string): string {
+  return configuredHomeUrl?.trim() || 'https://orbitplay.com';
+}
+
 export function resolveGameCloudPlayerId(user: {
   gameCloudPlayerId: string | null;
   mobile: string | null;
@@ -148,7 +152,7 @@ export class GameCloudController {
       const RESELLER_ID = Number(process.env.GAMECLOUD_RESELLER_ID);
       const API_TOKEN = process.env.GAMECLOUD_API_TOKEN || '';
       const SECRET_KEY = process.env.GAMECLOUD_SECRET_KEY || '';
-      const HOME_URL = process.env.GAMECLOUD_HOME_URL || 'https://maltiplayx.com';
+      const HOME_URL = getGameCloudHomeUrl(process.env.GAMECLOUD_HOME_URL);
       const redactProviderError = (value: unknown): string => {
         const message = typeof value === 'string' ? value : 'Provider returned an unspecified error.';
         return redactProviderMessage(message, [API_TOKEN, SECRET_KEY]);

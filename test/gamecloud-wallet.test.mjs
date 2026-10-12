@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import prismaModule from '../src/prismaClient.ts';
-import { GameCloudController, createGameCloudLaunchPayload, resolveGameCloudPlayerId, validateGameCloudLaunchUrl } from '../src/controllers/GameCloudController.ts';
+import { GameCloudController, createGameCloudLaunchPayload, getGameCloudHomeUrl, resolveGameCloudPlayerId, validateGameCloudLaunchUrl } from '../src/controllers/GameCloudController.ts';
 import { WalletService } from '../src/services/WalletService.ts';
 import { GameTransactionService } from '../src/services/games/GameTransactionService.ts';
 
@@ -243,6 +243,12 @@ test('GameCloud launch payload uses the stored player, catalog UID, seamless mod
     currency_code: 'INR',
     home_url: 'https://orbitplay.com',
   });
+});
+
+test('GameCloud home URL defaults to the verified provider value and honors explicit configuration', () => {
+  assert.equal(getGameCloudHomeUrl(), 'https://orbitplay.com');
+  assert.equal(getGameCloudHomeUrl('  '), 'https://orbitplay.com');
+  assert.equal(getGameCloudHomeUrl('https://operator.example'), 'https://operator.example');
 });
 
 async function callback(body) {
