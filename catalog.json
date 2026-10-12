@@ -11,7 +11,7 @@
   {"name":"Aviator","provider":"WS168","category":"ARCADE","gameUid":"852f6833b5eeb7a06cdc0811ffaa6211","supportedCurrencies":["INR"],"subCategory":"other"},
   {"name":"Aviator","provider":"GameCloud","category":"ARCADE","gameUid":"a04d1f3eb8cce8a4823bdf18e3f0e84","supportedCurrencies":["INR"],"thumbnail":"/category/cat-aviator.jpg","subCategory":"other"},
   {"name":"Aviator","provider":"GameCloud","category":"ARCADE","gameUid":"b36de3f246c8695d6ca27ba8a28abb9c","supportedCurrencies":["INR"],"thumbnail":"/icons/aviator_main.jpg","subCategory":"aviator"},
-  {"name":"Aviator Extra Bet","provider":"JDB","category":"ARCADE","gameUid":"2cb0f27d6690031bf682bc1703792738","supportedCurrencies":["INR"],"subCategory":"aviator"},
+  {"name":"Aviator Extra Bet","provider":"JDB","category":"ARCADE","gameUid":"2cb0f27d6690031bf682bc1703792738","supportedCurrencies":["INR"],"subCategory":"other"},
   {"name":"AviatorX","provider":"Rich88","category":"ARCADE","gameUid":"2f3c40d2af8692bf52be1e9b1e487b16"},
   {"name":"Aviator2-Sky Elite","provider":"WS168","category":"ARCADE","gameUid":"7407f47edf26062fa66f68dfe53aecb3","supportedCurrencies":["INR"],"subCategory":"other"},
   {"name":"Awesome Lucky Wheel","provider":"KA","category":"ARCADE","gameUid":"ccb77796e8e20162784ef65ceb1f0b3b","supportedCurrencies":["INR"]},
