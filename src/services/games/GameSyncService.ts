@@ -6,6 +6,8 @@ export interface CatalogGame {
   category: string;
   gameUid: string;
   supportedCurrencies?: string[];
+  thumbnail?: string;
+  banner?: string;
 }
 
 export class GameSyncService {
@@ -27,6 +29,8 @@ export class GameSyncService {
       existingMatches: 0,
       newGames: 0,
       duplicates: 0,
+      duplicateUidRecords: 0,
+      uidProviderConflicts: 0,
       newProviders: new Set<string>(),
       existingProviders: new Set<string>(),
     };
@@ -68,15 +72,19 @@ export class GameSyncService {
       }
       processedUids.add(identityKey);
 
-      // Check if existing match
-      const existingMatch = allGames.find(g => 
-        (g.vendorId === providerId && g.gameUid === item.gameUid) || 
-        // fallback if previously imported without vendorId maybe
-        (g.vendor?.name?.toLowerCase() === providerKey && g.gameUid === item.gameUid)
+      const uidMatches = allGames.filter(g => g.gameUid === item.gameUid);
+      const providerUidMatches = uidMatches.filter(g =>
+        (g.vendorId === providerId && g.gameUid === item.gameUid) ||
+        g.vendor?.name?.toLowerCase() === providerKey ||
+        g.provider?.toLowerCase() === providerKey
       );
+      const existingMatch = providerUidMatches[0];
+      report.duplicateUidRecords += Math.max(0, providerUidMatches.length - 1);
 
       if (existingMatch) {
         report.existingMatches++;
+      } else if (uidMatches.length > 0) {
+        report.uidProviderConflicts++;
       } else {
         report.newGames++;
       }
@@ -126,18 +134,32 @@ export class GameSyncService {
       const provider = providerMap.get(pName);
       if (!provider) continue;
 
-      // Check if already exists by vendorId + gameUid
-      const existingGame = await prisma.game.findFirst({
-        where: { vendorId: provider.id, gameUid: item.gameUid }
+      const gamesWithUid = await prisma.game.findMany({
+        where: { gameUid: item.gameUid },
+        include: { vendor: true },
       });
+      const providerMatches = gamesWithUid.filter(game =>
+        game.vendorId === provider.id ||
+        game.vendor?.name?.toLowerCase() === pName.toLowerCase() ||
+        game.provider?.toLowerCase() === pName.toLowerCase()
+      );
+
+      if (providerMatches.length > 1 || gamesWithUid.length > providerMatches.length) {
+        throw new Error(`Game UID ${item.gameUid} already exists with duplicate or conflicting provider mappings.`);
+      }
+
+      const existingGame = providerMatches[0];
 
       if (existingGame) {
         await prisma.game.update({
           where: { id: existingGame.id },
           data: {
+            name: item.name,
             category: item.category,
-            thumbnail: `/game-assets/${existingGame.slug}/thumbnail.webp`,
-            banner: `/game-assets/${existingGame.slug}/banner.webp`,
+            provider: item.provider,
+            vendorId: provider.id,
+            thumbnail: item.thumbnail || existingGame.thumbnail || `/game-assets/${existingGame.slug}/thumbnail.webp`,
+            banner: item.banner || existingGame.banner || `/game-assets/${existingGame.slug}/banner.webp`,
             ...(item.supportedCurrencies?.includes('INR')
               ? {
                   supportedCurrencies: item.supportedCurrencies,
@@ -160,8 +182,8 @@ export class GameSyncService {
         finalSlug = `${baseSlug}-${counter}`;
       }
 
-      const thumbnailPath = `/game-assets/${finalSlug}/thumbnail.webp`;
-      const bannerPath = `/game-assets/${finalSlug}/banner.webp`;
+      const thumbnailPath = item.thumbnail || `/game-assets/${finalSlug}/thumbnail.webp`;
+      const bannerPath = item.banner || `/game-assets/${finalSlug}/banner.webp`;
 
       await prisma.game.create({
         data: {

@@ -9,6 +9,7 @@
   {"name":"ATT Gold Crown","provider":"MT","category":"ARCADE","gameUid":"628ab9015ef60e2915ce42f986a47d7a"},
   {"name":"Aviator","provider":"Rich88","category":"ARCADE","gameUid":"b4ebe3f010e86620e0e42664a3358df4"},
   {"name":"Aviator","provider":"WS168","category":"ARCADE","gameUid":"852f6833b5eeb7a06cdc0811ffaa6211","supportedCurrencies":["INR"]},
+  {"name":"Aviator","provider":"GameCloud","category":"ARCADE","gameUid":"a04d1f3eb8cce8a4823bdf18e3f0e84","supportedCurrencies":["INR"],"thumbnail":"/category/cat-aviator.jpg"},
   {"name":"Aviator Extra Bet","provider":"JDB","category":"ARCADE","gameUid":"2cb0f27d6690031bf682bc1703792738","supportedCurrencies":["INR"]},
   {"name":"AviatorX","provider":"Rich88","category":"ARCADE","gameUid":"2f3c40d2af8692bf52be1e9b1e487b16"},
   {"name":"Aviator2-Sky Elite","provider":"WS168","category":"ARCADE","gameUid":"7407f47edf26062fa66f68dfe53aecb3","supportedCurrencies":["INR"]},

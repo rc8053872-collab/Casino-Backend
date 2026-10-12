@@ -4,6 +4,8 @@
 
 - Casino frontend launch: `POST /api/v1/games/launch`, authenticated with the casino session. The backend takes the player ID from the verified session; it ignores any client-supplied player ID.
 - GameCloud launch API: `${GAMECLOUD_BASE_URL}/api/v1/game/launch`. Configure the host, reseller ID, API token, secret key, and casino home URL using backend environment variables.
+- A successful launch must include a valid absolute HTTPS `game_launch_url`; the backend returns that validated value as `launch_url` to the authenticated frontend.
+- Catalog records store GameCloud's UID in `Game.gameUid` and link to the `GameCloud` provider record. Run catalog dry-runs/imports with `--uid=<gameUid>` to inspect or update only one game rather than processing the full catalog.
 - Operator Profile wallet callback URL: `https://api.maltiplayx.com/api/v1/callback`. This is the callback route registered by the backend; the launch request does not send a callback URL.
 - Frontend wallet balance: `GET /api/wallet/balance`; its authenticated user and wallet are resolved independently from the GameCloud callback.
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import prismaModule from '../src/prismaClient.ts';
-import { GameCloudController, resolveGameCloudPlayerId } from '../src/controllers/GameCloudController.ts';
+import { GameCloudController, createGameCloudLaunchPayload, resolveGameCloudPlayerId, validateGameCloudLaunchUrl } from '../src/controllers/GameCloudController.ts';
 import { WalletService } from '../src/services/WalletService.ts';
 import { GameTransactionService } from '../src/services/games/GameTransactionService.ts';
 
@@ -215,6 +215,35 @@ function responseRecorder() {
     },
   };
 }
+
+test('GameCloud launch URL validation accepts absolute HTTPS URLs only', () => {
+  assert.equal(
+    validateGameCloudLaunchUrl('https://games.gamecloudapi.com/session?id=abc'),
+    'https://games.gamecloudapi.com/session?id=abc'
+  );
+  assert.equal(validateGameCloudLaunchUrl('javascript:alert(1)'), null);
+  assert.equal(validateGameCloudLaunchUrl('//games.gamecloudapi.com/session'), null);
+  assert.equal(validateGameCloudLaunchUrl('http://games.gamecloudapi.com/session'), null);
+  assert.equal(validateGameCloudLaunchUrl('not a URL'), null);
+  assert.equal(validateGameCloudLaunchUrl(undefined), null);
+});
+
+test('GameCloud launch payload uses the stored player, catalog UID, seamless mode, and wallet currency', () => {
+  assert.deepEqual(createGameCloudLaunchPayload({
+    resellerId: 306,
+    playerId: '12345',
+    gameUid: 'a04d1f3eb8cce8a4823bdf18e3f0e84',
+    currencyCode: 'INR',
+    homeUrl: 'https://orbitplay.com',
+  }), {
+    reseller_id: 306,
+    player_id: '12345',
+    game_uid: 'a04d1f3eb8cce8a4823bdf18e3f0e84',
+    mode: 'seamless',
+    currency_code: 'INR',
+    home_url: 'https://orbitplay.com',
+  });
+});
 
 async function callback(body) {
   const response = responseRecorder();

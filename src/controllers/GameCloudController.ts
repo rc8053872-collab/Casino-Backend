@@ -19,6 +19,37 @@ function redactProviderMessage(message: string, secrets: string[]): string {
   );
 }
 
+export function validateGameCloudLaunchUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  try {
+    const parsedUrl = new URL(value.trim());
+    if (parsedUrl.protocol !== 'https:' || !parsedUrl.hostname || parsedUrl.username || parsedUrl.password) {
+      return null;
+    }
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function createGameCloudLaunchPayload(input: {
+  resellerId: number;
+  playerId: string;
+  gameUid: string;
+  currencyCode: string;
+  homeUrl: string;
+}) {
+  return {
+    reseller_id: input.resellerId,
+    player_id: input.playerId,
+    game_uid: input.gameUid,
+    mode: 'seamless',
+    currency_code: input.currencyCode,
+    home_url: input.homeUrl,
+  };
+}
+
 export function resolveGameCloudPlayerId(user: {
   gameCloudPlayerId: string | null;
   mobile: string | null;
@@ -111,11 +142,6 @@ export class GameCloudController {
 
       // External provider game code
       const externalGameUid = game.gameUid || game.providerId || game.slug;
-      const fallbackGameUid = (game.providerId && game.providerId !== externalGameUid)
-        ? game.providerId
-        : (game.gameUid && game.gameUid !== externalGameUid)
-          ? game.gameUid
-          : null;
 
       // 3. Setup GameCloud request
       const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
@@ -138,31 +164,40 @@ export class GameCloudController {
         // We MUST send a clean, unique integer ID, or GameCloud will mangle ObjectIds (e.g., 6ac8817f -> 68817)
         // and we will lose the identity mapping for callbacks.
         let gameCloudPlayerId = user.gameCloudPlayerId;
+        let isUniquePlayerId = Boolean(gameCloudPlayerId && gameCloudPlayerId.length === 5);
         if (!gameCloudPlayerId || gameCloudPlayerId.length !== 5) {
           // GameCloud's backend severely truncates player IDs down to just 5 characters during the bet callback.
           // We MUST generate an exactly 5-digit ID (10000-99999) to survive their roundtrip without collisions.
-          let isUnique = false;
           let attempts = 0;
-          while (!isUnique && attempts < 10) {
+          while (!isUniquePlayerId && attempts < 10) {
             gameCloudPlayerId = String(Math.floor(10000 + Math.random() * 90000));
             const existing = await prisma.user.findFirst({ where: { gameCloudPlayerId } });
-            if (!existing) isUnique = true;
+            if (!existing) isUniquePlayerId = true;
             attempts++;
           }
+
+          if (!isUniquePlayerId) {
+            console.error('[GameCloud Launch] Could not allocate a unique player ID.', { playerLogId: getPlayerLogId(user.id) });
+            return res.status(500).json({ status: 'FAILED', error: 'PLAYER_ID_CONFIGURATION_ERROR' });
+          }
+
           await prisma.user.update({
             where: { id: user.id },
             data: { gameCloudPlayerId }
           });
         }
 
-        const payload = {
-          reseller_id: RESELLER_ID,
-          player_id: gameCloudPlayerId,
-          game_uid: externalGameUid,
-          mode: 'seamless',
-          currency_code: walletCurrency,
-          home_url: HOME_URL
-        };
+        if (!gameCloudPlayerId) {
+          return res.status(500).json({ status: 'FAILED', error: 'PLAYER_ID_CONFIGURATION_ERROR' });
+        }
+
+        const payload = createGameCloudLaunchPayload({
+          resellerId: RESELLER_ID,
+          playerId: gameCloudPlayerId,
+          gameUid: externalGameUid,
+          currencyCode: walletCurrency,
+          homeUrl: HOME_URL,
+        });
 
         const response = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, payload, {
           headers: {
@@ -182,52 +217,33 @@ export class GameCloudController {
           currency_code: payload.currency_code
         };
 
-        let launchResult = response.data;
-        let actualGameUid = externalGameUid;
-
-        if (launchResult?.status !== 'SUCCESS' && fallbackGameUid) {
-          console.warn(`[GameCloud Launch] Primary UID ${externalGameUid} failed (${launchResult?.error || launchResult?.message}), attempting fallback to ${fallbackGameUid}`);
-          try {
-            const fallbackResponse = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
-              ...payload,
-              game_uid: fallbackGameUid
-            }, {
-              headers: {
-                'X-API-Token': API_TOKEN,
-                'X-Secret-Key': SECRET_KEY,
-                'Origin': 'https://maltiplayx.com',
-                'Referer': 'https://maltiplayx.com/',
-                'Content-Type': 'application/json'
-              },
-              timeout: 10000
+        if (response.data?.status === 'SUCCESS') {
+          const launchUrl = validateGameCloudLaunchUrl(response.data?.game_launch_url);
+          if (!launchUrl) {
+            console.error('[GameCloud Launch] Invalid successful response', {
+              ...safeLogPayload,
+              responseStatus: response.data?.status,
+              hasLaunchUrl: typeof response.data?.game_launch_url === 'string',
             });
-            if (fallbackResponse.data?.status === 'SUCCESS') {
-              launchResult = fallbackResponse.data;
-              actualGameUid = fallbackGameUid;
-              // Auto-heal in database
-              prisma.game.update({
-                where: { id: game.id },
-                data: { gameUid: fallbackGameUid }
-              }).catch(e => console.error('[GameCloud Auto-Heal] Failed to update gameUid in DB:', e));
-            }
-          } catch (fallbackErr) {
-            console.error('[GameCloud Launch] Fallback attempt also failed:', fallbackErr);
+            return res.status(502).json({
+              status: 'FAILED',
+              error: 'INVALID_LAUNCH_URL',
+              message: 'The game provider returned an invalid launch URL.',
+            });
           }
-        }
 
-        if (launchResult?.status === 'SUCCESS') {
-          console.log(`[GameCloud Launch] Success`, { ...safeLogPayload, game_uid: actualGameUid, launch_url: '...' });
+          console.log(`[GameCloud Launch] Success`, { ...safeLogPayload, launch_url: '...' });
           return res.json({
             status: 'SUCCESS',
-            game_uid: actualGameUid,
-            launch_url: launchResult.game_launch_url
+            game_uid: externalGameUid,
+            launch_url: launchUrl
           });
         }
 
         const gcError = redactProviderError(
-          launchResult?.error || launchResult?.message || 'Unknown error from GameCloud'
+          response.data?.error || response.data?.message || 'Unknown error from GameCloud'
         );
-        console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: launchResult?.status, error: gcError });
+        console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: response.data?.status, error: gcError });
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
           return res.status(401).json({ status: 'FAILED', error: 'UNAUTHORIZED', message: 'Game provider authentication failed.' });
@@ -236,7 +252,7 @@ export class GameCloudController {
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('currently disabled')) {
           return res.status(400).json({ status: 'FAILED', error: 'GAME_UNAVAILABLE', message: 'Game is currently unavailable.' });
         }
-        
+
         if (typeof gcError === 'string' && (gcError.toLowerCase().includes('invalid game') || gcError.toLowerCase().includes('not found'))) {
           return res.status(400).json({ status: 'FAILED', error: 'INVALID_GAME', message: 'Game configuration is invalid.' });
         }
@@ -283,7 +299,7 @@ export class GameCloudController {
 
           // Preserve the original status code and error from GameCloud
           return res.status(error.response.status).json({
-            status: 'FAILED', 
+            status: 'FAILED',
             error: 'GAMECLOUD_LAUNCH_FAILED',
             message: gcError || `GameCloud returned HTTP ${error.response.status}.`
           });
@@ -533,13 +549,12 @@ export class GameCloudController {
         errorCode: typeof err === 'object' && err !== null && 'code' in err ? err.code : undefined,
         errorMessage: err instanceof Error
           ? redactProviderMessage(err.message, [
-              process.env.GAMECLOUD_API_TOKEN || '',
-              process.env.GAMECLOUD_SECRET_KEY || '',
-            ])
+            process.env.GAMECLOUD_API_TOKEN || '',
+            process.env.GAMECLOUD_SECRET_KEY || '',
+          ])
           : 'Non-Error exception',
       });
       return res.status(500).json({ status: 'FAILED', error: 'WALLET_TRANSACTION_FAILED' });
     }
   }
 }
-

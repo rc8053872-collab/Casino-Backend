@@ -3,11 +3,20 @@ import catalogData from './catalog.json';
 import prisma from './src/prismaClient';
 
 async function main() {
-  const catalog = catalogData as CatalogGame[];
+  const uidFilter = process.argv.find(argument => argument.startsWith('--uid='))?.slice('--uid='.length);
+  const fullCatalog = catalogData as CatalogGame[];
+  const catalog = uidFilter
+    ? fullCatalog.filter(game => game.gameUid === uidFilter)
+    : fullCatalog;
+
+  if (uidFilter && catalog.length === 0) {
+    throw new Error(`No catalog record found for UID ${uidFilter}`);
+  }
   
   console.log("================================================");
   console.log("CATALOG ACTUAL IMPORT (PHASE F)");
   console.log("================================================");
+  if (uidFilter) console.log(`Scoped UID: ${uidFilter}`);
   
   const report = await GameSyncService.runImport(catalog);
   
