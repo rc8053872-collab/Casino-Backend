@@ -14,6 +14,7 @@ async function main() {
       providerId: "50fb95404b19b978a8983f2ff6cafc6d",
       gameUid: "50fb95404b19b978a8983f2ff6cafc6d",
       category: "crash",
+      subCategory: "aviator",
       status: "ACTIVE",
       thumbnail: "aviator.png",
       displayOrder: 1,

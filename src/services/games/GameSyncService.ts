@@ -8,6 +8,7 @@ export interface CatalogGame {
   supportedCurrencies?: string[];
   thumbnail?: string;
   banner?: string;
+  subCategory?: string;
 }
 
 export class GameSyncService {
@@ -158,6 +159,7 @@ export class GameSyncService {
             category: item.category,
             provider: item.provider,
             vendorId: provider.id,
+            ...(item.subCategory ? { subCategory: item.subCategory } : {}),
             thumbnail: item.thumbnail || existingGame.thumbnail || `/game-assets/${existingGame.slug}/thumbnail.webp`,
             banner: item.banner || existingGame.banner || `/game-assets/${existingGame.slug}/banner.webp`,
             ...(item.supportedCurrencies?.includes('INR')
@@ -195,6 +197,7 @@ export class GameSyncService {
           
           vendorId: provider.id,
           gameUid: item.gameUid,
+          subCategory: item.subCategory,
           
           thumbnail: thumbnailPath,
           banner: bannerPath,
