@@ -41,8 +41,8 @@ export class WalletController {
       const walletId = req.user?.walletId;
       const { amount, utrNumber, proofDataUrl } = req.body;
       
-      if (!walletId || !amount || amount <= 0) {
-        return res.status(400).json({ error: 'Invalid deposit request' });
+      if (!walletId || !amount || amount < 100) {
+        return res.status(400).json({ error: 'Minimum deposit amount is ₹100.' });
       }
 
       // Handle manual deposits (with UTR and screenshot proof)
@@ -88,20 +88,92 @@ export class WalletController {
   static async withdraw(req: Request, res: Response, next: NextFunction) {
     try {
       const walletId = req.user?.walletId;
-      const { amount, destinationAccount } = req.body;
+      const { amount, accountNumber, ifscCode, branchName, destinationAccount } = req.body;
       
-      if (!walletId || !amount || amount <= 0 || !destinationAccount) {
-        return res.status(400).json({ error: 'Invalid withdrawal request' });
+      const parsedAmount = Number(amount);
+      if (!walletId || !parsedAmount || parsedAmount < 300) {
+        return res.status(400).json({ error: 'Enter a valid withdrawal amount of at least ₹300.' });
+      }
+
+      // Support either direct bank fields or nested destinationAccount
+      const accNum = (accountNumber || destinationAccount?.accountNumber || '').trim();
+      const ifsc = (ifscCode || destinationAccount?.ifscCode || '').trim();
+      const branch = (branchName || destinationAccount?.branchName || '').trim();
+
+      if (!accNum || !ifsc) {
+        return res.status(400).json({ error: 'Bank account number and IFSC code are required.' });
+      }
+
+      const wallet = await prisma.wallet.findUnique({ where: { id: walletId } });
+      if (!wallet) {
+        return res.status(404).json({ error: 'Wallet not found' });
+      }
+
+      if (wallet.balance < parsedAmount) {
+        return res.status(400).json({ error: 'Insufficient wallet balance.' });
       }
 
       const settings = await prisma.paymentSetting.findFirst({ orderBy: { updatedAt: 'desc' } });
       const feePercent = settings?.withdrawFeePercent || 0;
-      const feeAmount = (amount * feePercent) / 100;
-      const finalAmount = amount - feeAmount;
+      const feeAmount = Math.round(((parsedAmount * feePercent) / 100) * 100) / 100;
+      const finalAmount = Math.round((parsedAmount - feeAmount) * 100) / 100;
 
-      const response = await paymentService.requestWithdrawal(walletId, amount, finalAmount, destinationAccount, feeAmount);
-      res.json({ ...response, originalAmount: amount, feeAmount, finalAmount });
-    } catch (error) {
+      // Lock funds atomically & create PENDING withdrawal transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // Debit from balance and put into lockedBalance
+        const debit = await tx.wallet.updateMany({
+          where: { id: walletId, balance: { gte: parsedAmount } },
+          data: {
+            balance: { decrement: parsedAmount },
+            lockedBalance: { increment: parsedAmount }
+          }
+        });
+
+        if (debit.count !== 1) {
+          throw new Error('INSUFFICIENT_FUNDS');
+        }
+
+        const idempotencyKey = `with-req-${uuidv4()}`;
+        const transaction = await tx.transaction.create({
+          data: {
+            walletId,
+            amount: parsedAmount,
+            type: 'WITHDRAWAL',
+            status: 'PENDING',
+            balanceBefore: wallet.balance,
+            balanceAfter: Math.round((wallet.balance - parsedAmount) * 100) / 100,
+            currency: wallet.currency,
+            idempotencyKey,
+            description: `Withdrawal request for ₹${parsedAmount} (Fee: ${feePercent}% = ₹${feeAmount}, Payout: ₹${finalAmount})`,
+            metadata: {
+              feePercent,
+              feeAmount,
+              finalAmount,
+              originalAmount: parsedAmount,
+              bank: {
+                accountNumber: accNum,
+                ifscCode: ifsc,
+                branchName: branch
+              }
+            }
+          }
+        });
+
+        return transaction;
+      });
+
+      return res.json({
+        message: `Withdrawal request of ₹${parsedAmount} submitted successfully. Platform fee (${feePercent}%): ₹${feeAmount}. Payout to receive: ₹${finalAmount}. Admin will review and process shortly.`,
+        transaction: result,
+        originalAmount: parsedAmount,
+        feePercent,
+        feeAmount,
+        finalAmount
+      });
+    } catch (error: any) {
+      if (error?.message === 'INSUFFICIENT_FUNDS') {
+        return res.status(400).json({ error: 'Insufficient wallet balance.' });
+      }
       next(error);
     }
   }

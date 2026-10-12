@@ -166,6 +166,7 @@ export class AuthController {
         token,
         user: {
           id: user.id,
+          username: user.username || (user.email ? user.email.split('@')[0] : null) || user.mobile,
           email: user.email,
           phone: user.mobile,
           balance: refreshedWallet.balance,
@@ -199,6 +200,7 @@ export class AuthController {
         status: 'SUCCESS',
         user: {
           id: user.id,
+          username: user.username || (user.email ? user.email.split('@')[0] : null) || user.mobile,
           phone: user.mobile,
           email: user.email,
           role: user.role,
@@ -323,8 +325,24 @@ export class AuthController {
         return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
       }
 
-      const { email, phone } = req.body;
+      const { email, phone, username } = req.body;
       const updateData: any = {};
+
+      if (username !== undefined) {
+        const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+        if (normalizedUsername) {
+          if (normalizedUsername.length < 3 || normalizedUsername.length > 30) {
+            return res.status(400).json({ status: 'FAILED', message: 'Username must be between 3 and 30 characters.' });
+          }
+          const existing = await prisma.user.findFirst({
+            where: { username: normalizedUsername, NOT: { id: userId } }
+          });
+          if (existing) {
+            return res.status(409).json({ status: 'FAILED', message: 'This username is already taken.' });
+          }
+          updateData.username = normalizedUsername;
+        }
+      }
 
       if (email !== undefined) {
         const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
@@ -365,7 +383,7 @@ export class AuthController {
       const updated = await prisma.user.update({
         where: { id: userId },
         data: updateData,
-        select: { id: true, email: true, mobile: true }
+        select: { id: true, username: true, email: true, mobile: true }
       });
 
       return res.json({
@@ -373,6 +391,7 @@ export class AuthController {
         message: 'Profile updated successfully.',
         user: {
           id: updated.id,
+          username: updated.username,
           email: updated.email,
           phone: updated.mobile
         }

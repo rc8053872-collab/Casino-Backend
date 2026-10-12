@@ -21,13 +21,19 @@ app.use(cors());
 app.use(express.json({ limit: '3mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.get('/health', (_req, res) => {
+const handleHealthCheck = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'OK',
     service: 'maltiplayx-api',
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
-});
+};
+
+app.get('/health', handleHealthCheck);
+app.get('/ping', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
+app.get('/api/ping', handleHealthCheck);
 
 // Routes
 app.use('/api', routes);
@@ -58,4 +64,24 @@ app.use(errorHandler);
 // Start Server
 app.listen(PORT, () => {
   logger.info(`Server running on http://localhost:${PORT}`);
+
+  // Automated 10-minute keep-alive self-ping (runs all the time to keep server alive)
+  const KEEP_ALIVE_INTERVAL = 10 * 60 * 1000; // 10 minutes (600,000 ms)
+  const targetBase = (process.env.SERVER_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+  const pingUrl = `${targetBase}/health`;
+
+  logger.info(`[KeepAlive] 10-minute server ping service initialized targeting: ${pingUrl}`);
+
+  setInterval(async () => {
+    try {
+      const response = await fetch(pingUrl);
+      if (response.ok) {
+        logger.info(`[KeepAlive] 10-minute ping OK at ${new Date().toLocaleTimeString()} (status: ${response.status})`);
+      } else {
+        logger.warn(`[KeepAlive] 10-minute ping returned status ${response.status}`);
+      }
+    } catch (err: any) {
+      logger.warn(`[KeepAlive] 10-minute ping error: ${err?.message || err}`);
+    }
+  }, KEEP_ALIVE_INTERVAL);
 });
