@@ -82,6 +82,7 @@
   {"name":"Cricket Burst","provider":"JDB","category":"ARCADE","gameUid":"36d1db0afc55e149119f895c1e5ae5"},
   {"name":"Crown 5PK","provider":"RSG","category":"ARCADE","gameUid":"1625b575217e17cb09453fcdb8358bfc","supportedCurrencies":["INR"]},
   {"name":"Dragon Tiger","provider":"On","category":"ARCADE","gameUid":"a683dc5cdf6e7b26b2a07451ea0143e1","supportedCurrencies":["INR"],"thumbnail":"/icons/dragon.jpg","subCategory":"dragon-tiger"},
+  {"name":"Dragon Tiger","provider":"Joker","category":"ARCADE","gameUid":"b228c2879e5579868bf3e84b46864a6f","supportedCurrencies":["INR"],"thumbnail":"/game-art/dragon-tiger-joker.webp","subCategory":"dragon-tiger"},
   {"name":"Lucky Money","provider":"KA","category":"ARCADE","gameUid":"5e3e1bbf0746f246f54006845bd50cbc","supportedCurrencies":["INR"]},
   {"name":"Mahjong Fruit","provider":"CQ9","category":"ARCADE","gameUid":"52db8e8d4992293d9061398fc3f3869d"},
   {"name":"Mammon","provider":"MT","category":"ARCADE","gameUid":"3039c58853a1aa796a9322beae5d5839"},
