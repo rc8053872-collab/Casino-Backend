@@ -111,6 +111,11 @@ export class GameCloudController {
 
       // External provider game code
       const externalGameUid = game.gameUid || game.providerId || game.slug;
+      const fallbackGameUid = (game.providerId && game.providerId !== externalGameUid)
+        ? game.providerId
+        : (game.gameUid && game.gameUid !== externalGameUid)
+          ? game.gameUid
+          : null;
 
       // 3. Setup GameCloud request
       const GATEWAY_URL = process.env.GAMECLOUD_BASE_URL || process.env.GAMECLOUD_API_URL || 'https://api.gamecloudapi.com';
@@ -177,19 +182,52 @@ export class GameCloudController {
           currency_code: payload.currency_code
         };
 
-        if (response.data?.status === 'SUCCESS') {
-          console.log(`[GameCloud Launch] Success`, { ...safeLogPayload, launch_url: '...' });
+        let launchResult = response.data;
+        let actualGameUid = externalGameUid;
+
+        if (launchResult?.status !== 'SUCCESS' && fallbackGameUid) {
+          console.warn(`[GameCloud Launch] Primary UID ${externalGameUid} failed (${launchResult?.error || launchResult?.message}), attempting fallback to ${fallbackGameUid}`);
+          try {
+            const fallbackResponse = await axios.post(`${GATEWAY_URL}/api/v1/game/launch`, {
+              ...payload,
+              game_uid: fallbackGameUid
+            }, {
+              headers: {
+                'X-API-Token': API_TOKEN,
+                'X-Secret-Key': SECRET_KEY,
+                'Origin': 'https://maltiplayx.com',
+                'Referer': 'https://maltiplayx.com/',
+                'Content-Type': 'application/json'
+              },
+              timeout: 10000
+            });
+            if (fallbackResponse.data?.status === 'SUCCESS') {
+              launchResult = fallbackResponse.data;
+              actualGameUid = fallbackGameUid;
+              // Auto-heal in database
+              prisma.game.update({
+                where: { id: game.id },
+                data: { gameUid: fallbackGameUid }
+              }).catch(e => console.error('[GameCloud Auto-Heal] Failed to update gameUid in DB:', e));
+            }
+          } catch (fallbackErr) {
+            console.error('[GameCloud Launch] Fallback attempt also failed:', fallbackErr);
+          }
+        }
+
+        if (launchResult?.status === 'SUCCESS') {
+          console.log(`[GameCloud Launch] Success`, { ...safeLogPayload, game_uid: actualGameUid, launch_url: '...' });
           return res.json({
             status: 'SUCCESS',
-            game_uid: externalGameUid,
-            launch_url: response.data.game_launch_url
+            game_uid: actualGameUid,
+            launch_url: launchResult.game_launch_url
           });
         }
 
         const gcError = redactProviderError(
-          response.data?.error || response.data?.message || 'Unknown error from GameCloud'
+          launchResult?.error || launchResult?.message || 'Unknown error from GameCloud'
         );
-        console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: response.data?.status, error: gcError });
+        console.error(`[GameCloud Launch] Failed from provider`, { ...safeLogPayload, status: launchResult?.status, error: gcError });
 
         if (typeof gcError === 'string' && gcError.toLowerCase().includes('reseller not found')) {
           return res.status(401).json({ status: 'FAILED', error: 'UNAUTHORIZED', message: 'Game provider authentication failed.' });
