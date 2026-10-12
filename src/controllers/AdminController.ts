@@ -983,15 +983,26 @@ export class AdminController {
         skip,
         take: limit,
         include: {
-          user: { select: { id: true, email: true } },
           game: { select: { id: true, name: true, provider: true } }
         }
       });
 
+      const userIds = Array.from(new Set(histories.map(h => h.userId).filter(Boolean)));
+      const users = userIds.length > 0 ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, email: true, username: true, mobile: true }
+      }) : [];
+      const userMap = new Map(users.map(u => [u.id, u]));
+
+      const enrichedHistories = histories.map(h => ({
+        ...h,
+        user: userMap.get(h.userId) || null
+      }));
+
       const total = await prisma.gameHistory.count();
 
       res.json({
-        data: histories,
+        data: enrichedHistories,
         pagination: {
           page,
           limit,
