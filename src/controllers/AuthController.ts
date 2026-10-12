@@ -188,7 +188,7 @@ export class AuthController {
 
       const user: any = await (prisma.user as any).findUnique({
         where: { id: userId },
-        include: { wallet: true }
+        include: { wallet: true, referralCode: true }
       });
 
       if (!user) {
@@ -202,8 +202,179 @@ export class AuthController {
           phone: user.mobile,
           email: user.email,
           role: user.role,
+          status: user.status,
+          memberId: user.referralCode?.code || user.id.slice(-8).toUpperCase(),
+          createdAt: user.createdAt,
           balance: user.wallet?.balance || 0,
           currency: user.wallet?.currency || 'INR'
+        }
+      });
+    } catch (error: any) {
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
+    }
+  }
+
+  static async getStats(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
+      }
+
+      const user: any = await (prisma.user as any).findUnique({
+        where: { id: userId },
+        include: { wallet: true }
+      });
+
+      if (!user || !user.wallet) {
+        return res.status(404).json({ status: 'FAILED', message: 'User wallet not found' });
+      }
+
+      const walletId = user.wallet.id;
+
+      const [totalBetsCount, totalWinsAgg, bonusesAgg] = await Promise.all([
+        prisma.transaction.count({
+          where: { walletId, type: 'BET' }
+        }),
+        prisma.transaction.aggregate({
+          where: { walletId, type: 'WIN' },
+          _sum: { amount: true }
+        }),
+        prisma.transaction.aggregate({
+          where: { walletId, type: 'BONUS', status: 'COMPLETED' },
+          _sum: { amount: true }
+        })
+      ]);
+
+      const totalBets = totalBetsCount > 0 ? totalBetsCount : 0;
+      const totalWins = totalWinsAgg._sum.amount ? Number(totalWinsAgg._sum.amount) : (user.wallet.totalWon || 0);
+      const bonusesClaimed = bonusesAgg._sum.amount ? Number(bonusesAgg._sum.amount) : 0;
+
+      // Base Level calculations
+      const level = 70 + Math.floor(totalBets / 10);
+      const currentLevelXP = 2500 + ((totalBets % 10) * 250);
+      const nextLevelXP = 5000;
+
+      return res.json({
+        status: 'SUCCESS',
+        stats: {
+          totalBets,
+          totalWins,
+          bonusesClaimed,
+          level,
+          currentLevelXP,
+          nextLevelXP,
+          vipTier: 'VIP Bronze'
+        }
+      });
+    } catch (error: any) {
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
+    }
+  }
+
+  static async changePassword(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
+      }
+
+      const { currentPassword, newPassword } = req.body;
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ status: 'FAILED', message: 'Both current password and new password are required.' });
+      }
+
+      if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
+        return res.status(400).json({ status: 'FAILED', message: 'New password must be between 8 and 128 characters.' });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!user || !user.passwordHash) {
+        return res.status(404).json({ status: 'FAILED', message: 'User not found' });
+      }
+
+      const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isMatch) {
+        return res.status(400).json({ status: 'FAILED', message: 'Current password is incorrect.' });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash }
+      });
+
+      return res.json({
+        status: 'SUCCESS',
+        message: 'Password updated successfully.'
+      });
+    } catch (error: any) {
+      return res.status(500).json({ status: 'FAILED', message: 'Internal server error', details: error.message || error.toString() });
+    }
+  }
+
+  static async updateProfile(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ status: 'FAILED', message: 'Unauthorized' });
+      }
+
+      const { email, phone } = req.body;
+      const updateData: any = {};
+
+      if (email !== undefined) {
+        const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+        if (normalizedEmail) {
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail) || normalizedEmail.length > 254) {
+            return res.status(400).json({ status: 'FAILED', message: 'Enter a valid email address.' });
+          }
+          const existing = await prisma.user.findFirst({
+            where: { email: normalizedEmail, NOT: { id: userId } }
+          });
+          if (existing) {
+            return res.status(409).json({ status: 'FAILED', message: 'This email is already in use by another account.' });
+          }
+          updateData.email = normalizedEmail;
+        }
+      }
+
+      if (phone !== undefined) {
+        const normalizedPhone = typeof phone === 'string' ? phone.replace(/[^\d+]/g, '') : '';
+        if (normalizedPhone) {
+          if (!/^\+?\d{8,15}$/.test(normalizedPhone)) {
+            return res.status(400).json({ status: 'FAILED', message: 'Enter a valid phone number with 8–15 digits.' });
+          }
+          const existing = await prisma.user.findFirst({
+            where: { mobile: normalizedPhone, NOT: { id: userId } }
+          });
+          if (existing) {
+            return res.status(409).json({ status: 'FAILED', message: 'This phone number is already in use.' });
+          }
+          updateData.mobile = normalizedPhone;
+        }
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ status: 'FAILED', message: 'No profile details provided to update.' });
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: updateData,
+        select: { id: true, email: true, mobile: true }
+      });
+
+      return res.json({
+        status: 'SUCCESS',
+        message: 'Profile updated successfully.',
+        user: {
+          id: updated.id,
+          email: updated.email,
+          phone: updated.mobile
         }
       });
     } catch (error: any) {

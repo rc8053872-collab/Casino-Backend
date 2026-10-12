@@ -14,6 +14,9 @@ const router = Router();
 router.post('/v1/auth/register', AuthController.register);
 router.post('/v1/auth/login', AuthController.login);
 router.get('/v1/auth/me', requireAuth, AuthController.getMe);
+router.get('/v1/auth/stats', requireAuth, AuthController.getStats);
+router.post('/v1/auth/change-password', requireAuth, AuthController.changePassword);
+router.put('/v1/auth/profile', requireAuth, AuthController.updateProfile);
 router.get('/v1/referrals/me', requireAuth, MemberController.getReferralInfo);
 router.get('/support/settings', MemberController.getSupportSettings);
 
