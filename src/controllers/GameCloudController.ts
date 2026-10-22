@@ -19,6 +19,36 @@ function redactProviderMessage(message: string, secrets: string[]): string {
   );
 }
 
+const gameLookupCache = new Map<string, { id: string; slug: string; providerId: string; gameUid: string | null }>();
+
+async function getCachedGame(gameCode: string) {
+  if (!gameCode) return null;
+  const cached = gameLookupCache.get(gameCode);
+  if (cached) return cached;
+  const game = await prisma.game.findFirst({
+    where: {
+      OR: [
+        { slug: gameCode },
+        { providerId: gameCode },
+        { gameUid: gameCode },
+      ],
+    },
+    select: {
+      id: true,
+      slug: true,
+      providerId: true,
+      gameUid: true,
+    },
+  });
+  if (game) {
+    gameLookupCache.set(gameCode, game);
+    if (game.slug) gameLookupCache.set(game.slug, game);
+    if (game.providerId) gameLookupCache.set(game.providerId, game);
+    if (game.gameUid) gameLookupCache.set(game.gameUid, game);
+  }
+  return game;
+}
+
 export function validateGameCloudLaunchUrl(value: unknown): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
 
@@ -62,7 +92,7 @@ export function resolveGameCloudPlayerId(user: {
   if (user.gameCloudPlayerId) {
     return user.gameCloudPlayerId;
   }
-  return user.id; // Fallback, though launchGame will now guarantee gameCloudPlayerId exists
+  return user.mobile || user.id;
 }
 
 export class GameCloudController {
@@ -439,15 +469,7 @@ export class GameCloudController {
 
       const gameCodeValue = body?.game_code;
       const gameCode = (typeof gameCodeValue === 'string' || typeof gameCodeValue === 'number') ? String(gameCodeValue).trim() : '';
-      const game = gameCode ? await prisma.game.findFirst({
-        where: {
-          OR: [
-            { slug: gameCode },
-            { providerId: gameCode },
-            { gameUid: gameCode },
-          ]
-        },
-      }) : null;
+      const game = gameCode ? await getCachedGame(gameCode) : null;
 
       if (!game) {
         return res.status(400).json({ status: 'FAILED', error: 'GAME_NOT_FOUND' });
@@ -482,7 +504,7 @@ export class GameCloudController {
         action,
       });
 
-      await GameTransactionService.processProviderTransaction({
+      const txResult = await GameTransactionService.processProviderTransaction({
         userId: user.id,
         gameId: game.id,
         roundId: providerTransactionId,
@@ -493,12 +515,9 @@ export class GameCloudController {
         currency: callbackCurrency,
       });
 
-      const updatedWallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
-      if (!updatedWallet) {
-        throw new Error('WALLET_NOT_FOUND_AFTER_TRANSACTION');
-      }
-      console.info('[GC_CALLBACK] Success', { callbackEventId, newBalance: updatedWallet.balance });
-      return res.json({ status: 'SUCCESS', balance: Number(updatedWallet.balance) });
+      const finalBalance = Number(txResult.balanceAfter ?? 0);
+      console.info('[GC_CALLBACK] Success', { callbackEventId, newBalance: finalBalance });
+      return res.json({ status: 'SUCCESS', balance: finalBalance });
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : '';
