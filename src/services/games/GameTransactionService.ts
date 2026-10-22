@@ -43,7 +43,7 @@ export class GameTransactionService {
         return existingTransaction;
       }
 
-      let round;
+      let round: any;
       if (type === TxType.REFUND) {
         if (!req.referenceId) throw new Error('ORIGINAL_TRANSACTION_NOT_FOUND');
         const originalBet = await tx.transaction.findFirst({
