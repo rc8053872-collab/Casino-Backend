@@ -246,8 +246,8 @@ test('GameCloud launch payload uses the stored player, catalog UID, seamless mod
 });
 
 test('GameCloud home URL defaults to the verified provider value and honors explicit configuration', () => {
-  assert.equal(getGameCloudHomeUrl(), 'https://orbitplay.com');
-  assert.equal(getGameCloudHomeUrl('  '), 'https://orbitplay.com');
+  assert.equal(getGameCloudHomeUrl(), 'https://maltiplayx.com');
+  assert.equal(getGameCloudHomeUrl('  '), 'https://maltiplayx.com');
   assert.equal(getGameCloudHomeUrl('https://operator.example'), 'https://operator.example');
 });
 

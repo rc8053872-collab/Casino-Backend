@@ -81,7 +81,7 @@ export function createGameCloudLaunchPayload(input: {
 }
 
 export function getGameCloudHomeUrl(configuredHomeUrl?: string): string {
-  return configuredHomeUrl?.trim() || 'https://orbitplay.com';
+  return configuredHomeUrl?.trim() || 'https://maltiplayx.com';
 }
 
 export function resolveGameCloudPlayerId(user: {

@@ -88,7 +88,7 @@ export class WalletController {
   static async withdraw(req: Request, res: Response, next: NextFunction) {
     try {
       const walletId = req.user?.walletId;
-      const { amount, accountNumber, ifscCode, branchName, destinationAccount } = req.body;
+      const { amount, accountNumber, ifscCode, branchName, destinationAccount, accountHolderName, userName } = req.body;
       
       const parsedAmount = Number(amount);
       if (!walletId || !parsedAmount || parsedAmount < 300) {
@@ -99,6 +99,15 @@ export class WalletController {
       const accNum = (accountNumber || destinationAccount?.accountNumber || '').trim();
       const ifsc = (ifscCode || destinationAccount?.ifscCode || '').trim();
       const branch = (branchName || destinationAccount?.branchName || '').trim();
+      const holderName = (
+        accountHolderName ||
+        userName ||
+        destinationAccount?.accountHolderName ||
+        destinationAccount?.userName ||
+        destinationAccount?.accountHolder ||
+        req.user?.username ||
+        ''
+      ).trim();
 
       if (!accNum || !ifsc) {
         return res.status(400).json({ error: 'Bank account number and IFSC code are required.' });
@@ -151,6 +160,9 @@ export class WalletController {
               finalAmount,
               originalAmount: parsedAmount,
               bank: {
+                accountHolder: holderName,
+                accountHolderName: holderName,
+                userName: holderName,
                 accountNumber: accNum,
                 ifscCode: ifsc,
                 branchName: branch

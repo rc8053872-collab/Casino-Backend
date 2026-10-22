@@ -348,15 +348,39 @@ export class AdminController {
 
   static async getWithdrawal(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params.id);
-      const withdrawal = await prisma.transaction.findFirst({
-        where: { id, type: 'WITHDRAWAL' },
-        include: {
-          wallet: {
-            include: { user: { select: { id: true, username: true, email: true, mobile: true } } }
+      const id = String(req.params.id).trim();
+      let withdrawal = null;
+
+      if (/^[0-9a-fA-F]{24}$/.test(id)) {
+        withdrawal = await prisma.transaction.findFirst({
+          where: { id, type: 'WITHDRAWAL' },
+          include: {
+            wallet: {
+              include: { user: { select: { id: true, username: true, email: true, mobile: true } } }
+            }
           }
-        }
-      });
+        });
+      }
+
+      if (!withdrawal) {
+        const recentWithdrawals = await prisma.transaction.findMany({
+          where: { type: 'WITHDRAWAL' },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+          include: {
+            wallet: {
+              include: { user: { select: { id: true, username: true, email: true, mobile: true } } }
+            }
+          }
+        });
+
+        withdrawal = recentWithdrawals.find(w =>
+          w.id.toLowerCase() === id.toLowerCase() ||
+          w.id.toLowerCase().endsWith(id.toLowerCase()) ||
+          w.id.slice(-8).toUpperCase() === id.toUpperCase()
+        ) || null;
+      }
+
       if (!withdrawal) {
         return res.status(404).json({ error: 'Withdrawal not found.' });
       }
